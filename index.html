@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#FFFEFB">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="TubeYou">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}html{-webkit-text-size-adjust:100%;overscroll-behavior-y:none}</style>
+</head>
+<body>
+<title>TubeYou</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Gloria+Hallelujah&display=swap">
+<style>
+/* Layout: one phone-width column, sticky stat header, fixed bottom tab bar. Single light look in channel brand colours. */
+:root {
+  --bg: #FFFEFB; --card: #FFFFFF; --ink: #2A2826; --muted: #6F6A64; --line: #ECE6DD; --soft: #F6F2EB;
+  --blue: #0571D3; --blue-soft: #E8F2FC; --orange: #FF7A1A; --orange-soft: #FFF0E4; --pink: #FF59F8; --pink-soft: #FFEAFE;
+  --red: #F3080F; --green: #12965A; --purple: #6C4BD8; --brown: #8A6A4C; --grey: #BDB6AD;
+  --display: "Montserrat", "Segoe UI", system-ui, sans-serif; --hand: "Gloria Hallelujah", "Comic Sans MS", cursive;
+  color-scheme: light;
+}
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--display); font-size: 15px; line-height: 1.45; -webkit-tap-highlight-color: transparent; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 120px; }
+h1, h2, h3 { font-weight: 800; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 18px; }
+h3 { font-size: 15px; }
+.hand { font-family: var(--hand); font-weight: 400; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.tiny { font-size: 11.5px; }
+.num { font-variant-numeric: tabular-nums; }
+.row { display: flex; align-items: center; gap: 10px; }
+.between { justify-content: space-between; }
+.wrapflex { flex-wrap: wrap; }
+.stack { display: grid; gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--soft); white-space: nowrap; }
+.pill.blue { background: var(--blue-soft); color: var(--blue); }
+.pill.orange { background: var(--orange-soft); color: #C2530A; }
+.pill.pink { background: var(--pink-soft); color: #B01FAD; }
+.pill.red { background: #FFE8E8; color: var(--red); }
+.pill.green { background: #E3F6EC; color: var(--green); }
+.btn { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 800; background: var(--soft); min-height: 44px; }
+.btn.primary { background: var(--blue); color: #fff; }
+.btn.orange { background: var(--orange); color: #fff; }
+.btn.ghost { background: transparent; border: 1.5px solid var(--line); }
+.btn.small { padding: 8px 12px; min-height: 36px; font-size: 13px; border-radius: 10px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.block { width: 100%; }
+.seg { display: flex; background: var(--soft); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; border: 0; background: transparent; border-radius: 9px; padding: 8px 6px; font-weight: 700; font-size: 13px; min-height: 38px; }
+.seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(42,40,38,0.14); color: var(--blue); }
+select, input[type=text] { font: inherit; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); color: var(--ink); width: 100%; min-height: 44px; }
+
+/* header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.top .inner { max-width: 560px; margin: 0 auto; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 8px; }
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.brand b { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+.brand .chan { font-weight: 700; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; min-width: 0; }
+.stat .k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.stat .v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { height: 8px; background: var(--soft); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 99px; }
+.stressline { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12px; font-weight: 700; }
+
+/* tabs */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--card); border-top: 1px solid var(--line); padding: 6px max(10px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
+.tabs .in { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.tabs button { border: 0; background: transparent; border-radius: 10px; padding: 6px 2px; font-size: 11.5px; font-weight: 700; color: var(--muted); display: grid; justify-items: center; gap: 2px; min-height: 48px; position: relative; }
+.tabs button.on { color: var(--blue); background: var(--blue-soft); }
+.tabs svg { width: 22px; height: 22px; }
+.dot { position: absolute; top: 4px; right: 22%; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
+.endbar { position: fixed; left: 0; right: 0; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); z-index: 6; pointer-events: none; }
+.endbar .in { max-width: 560px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); }
+.endbar button { pointer-events: auto; width: 100%; box-shadow: 0 6px 18px rgba(5,113,211,0.28); }
+
+/* routine */
+.day { display: flex; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.day > span { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+.stepper { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.stepper:first-of-type { border-top: 0; }
+.stepper .name { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
+.stepper .name small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.sw { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+.ctrl { display: flex; align-items: center; gap: 6px; }
+.ctrl button { width: 40px; height: 40px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--card); font-size: 20px; font-weight: 800; line-height: 1; display: grid; place-items: center; }
+.ctrl .val { min-width: 46px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
+.note { font-family: var(--hand); font-size: 14px; color: var(--blue); line-height: 1.35; }
+.note.warn { color: #C2530A; }
+.note.bad { color: var(--red); }
+.meter { display: grid; grid-template-columns: 74px 1fr 42px; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 700; }
+
+/* trends */
+.trend { border: 1.5px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 8px; }
+.trend.on { border-color: var(--orange); background: var(--orange-soft); }
+.size-1 { background: var(--soft); color: var(--muted); }
+.size-2 { background: var(--orange-soft); color: #C2530A; }
+.size-4 { background: #FFE8E8; color: var(--red); }
+
+/* lists */
+.list { display: grid; gap: 8px; }
+.item { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; background: var(--card); }
+.item.sel { border-color: var(--blue); background: var(--blue-soft); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; padding: 6px 4px; }
+td { padding: 7px 4px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+td.r, th.r { text-align: right; }
+.scroll { overflow-x: auto; }
+.you { color: var(--blue); font-weight: 800; }
+
+/* home */
+.hero { padding: 28px 0 10px; display: grid; gap: 10px; justify-items: start; }
+.hero h1 { font-size: 40px; letter-spacing: -0.03em; line-height: 1; display: flex; align-items: center; gap: 10px; }
+.hero .tag { font-family: var(--hand); font-size: 17px; color: var(--muted); transform: rotate(-1.5deg); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.opt { border: 1.5px solid var(--line); border-radius: 12px; padding: 10px; text-align: left; background: var(--card); display: grid; gap: 2px; min-height: 64px; }
+.opt b { font-size: 14px; }
+.opt span { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.opt.on { border-color: var(--blue); background: var(--blue-soft); }
+.sheet-bg { position: fixed; inset: 0; background: rgba(42,40,38,0.4); z-index: 20; display: grid; align-items: end; }
+.sheet { background: var(--bg); border-radius: 20px 20px 0 0; max-height: 86vh; overflow: auto; padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 12px; max-width: 560px; width: 100%; margin: 0 auto; }
+.sheet ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--ink); color: #fff; padding: 10px 14px; border-radius: 12px; font-weight: 700; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+.strip { display: flex; gap: 3px; }
+.strip i { flex: 1; height: 26px; border-radius: 4px; }
+.chart svg { width: 100%; height: auto; display: block; }
+@media (max-width: 380px) { .stats { grid-template-columns: repeat(2, 1fr); } .hero h1 { font-size: 34px; } }
+</style>
+
+<div id="app"></div>
+<div id="layer"></div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+'use strict';
+const T = window.TubeYou;
+const $app = document.getElementById('app'), $layer = document.getElementById('layer');
+const fmt = T.fmt;
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const eur = n => (n < 0 ? '−€' : '€') + fmt(Math.abs(n));
+const pct = x => Math.round(x * 100) + '%';
+const COLORS = ['var(--blue)', 'var(--orange)', 'var(--pink)', '#2A2826'];
+const ACT = { obl: ['School / uni / life', 'var(--grey)'], deep: ['Deep work', 'var(--blue)'], pack: ['Packaging', 'var(--pink)'], comm: ['Community', 'var(--orange)'], study: ['Study', 'var(--purple)'], gym: ['Gym', 'var(--green)'], job: ['Part-time job', 'var(--brown)'], free: ['Free time', '#F0EBE3'] };
+const LOGO = (s) => '<svg width="' + s + '" height="' + s + '" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 8 L56 32 L12 56 Z" fill="#0571D3" stroke="#0571D3" stroke-width="10" stroke-linejoin="round"/><ellipse cx="27" cy="32" rx="8" ry="11" fill="#FFFEFB"/></svg>';
+
+const G = { st: null, save: null, draft: null, tab: 'plan', screen: 'home', setup: { niche: 'glow', mode: 'turns', difficulty: 'normal', path: 'student', channelName: '' }, msgs: {}, review: null, sheet: null, stats: { games: [] } };
+
+/* ---------- storage: localStorage now, private db copy when available ---------- */
+const LS = 'tubeyou.save.v1', LSS = 'tubeyou.stats.v1';
+const lsGet = k => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let DB = null, UID = null, dbChain = Promise.resolve();
+async function initDb() {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+    if (!db || !user) return;
+    const uid = await user.id(); if (!uid) return;
+    DB = db; UID = uid;
+    const [s, st] = await Promise.all([DB.doc('data/users/' + UID + '/save').get(), DB.doc('data/users/' + UID + '/stats').get()]);
+    if (st.exists) { const remote = st.data(); if ((remote.games || []).length > (G.stats.games || []).length) { G.stats = JSON.parse(JSON.stringify(remote)); lsSet(LSS, G.stats); } }
+    if (s.exists) {
+      const remote = JSON.parse(s.data().json || 'null');
+      if (remote && (!G.save || (remote.updated || 0) > (G.save.updated || 0))) { G.save = remote; lsSet(LS, remote); if (G.screen === 'home') render(); }
+    }
+  } catch (e) { DB = null; }
+}
+function persist() {
+  if (G.save) { G.save.updated = Date.now(); G.save.draft = G.draft; lsSet(LS, G.save); }
+  lsSet(LSS, G.stats);
+  if (!DB || !UID) return;
+  const save = G.save ? JSON.stringify(G.save) : null, stats = JSON.parse(JSON.stringify(G.stats));
+  dbChain = dbChain.then(async () => {
+    try { if (save) await DB.doc('data/users/' + UID + '/save').set({ json: save, updated: Date.now() }); await DB.doc('data/users/' + UID + '/stats').set(stats); } catch (e) {}
+  });
+}
+
+/* ---------- game flow ---------- */
+function defaultDraft(st) {
+  const c = st.creators[0]; const last = c.lastDecision;
+  const routine = last ? Object.assign({}, last.routine) : { deep: 3, pack: 1, comm: 0.5, study: 1, gym: 1, job: 0 };
+  Object.keys(routine).forEach(k => routine[k] = Math.round(routine[k] * 2) / 2);
+  const total = last ? last.videos.total : 4;
+  const pay = {}; c.staff.forEach(s => pay[s.id] = s.pay || 'fair');
+  return { routine, studyFocus: last ? last.studyFocus : 'craft', videos: { ever: total, trends: [0, 0, 0] }, sponsors: [], hire: [], fire: [], raises: [], pay, gear: null, product: false, house: null, dropOut: false };
+}
+function startGame(opts, practiceFrom) {
+  const o = Object.assign({}, opts); o.seed = o.seed || ((Math.random() * 4294967295) >>> 0);
+  G.save = { v: 1, opts: o, turns: [], pending: [], updated: Date.now() };
+  G.st = T.newGame(o); G.draft = defaultDraft(G.st); G.tab = 'plan'; G.screen = 'game'; G.review = null; G.msgs = {};
+  persist(); render(); window.scrollTo(0, 0);
+}
+function loadSave(save) {
+  G.save = save;
+  let st = T.replay(save);
+  (save.pending || []).forEach(p => { if (p.kind === 'propose') T.proposeDeal(st, p.deal); else if (p.kind === 'accept') T.acceptOffer(st, p.offer); });
+  G.st = st; G.draft = save.draft && save.draft._turn === st.turn ? save.draft : defaultDraft(st); G.draft._turn = st.turn;
+  G.screen = st.over ? 'end' : 'game'; G.tab = 'plan'; G.msgs = {};
+}
+function endSeason() {
+  const st = G.st; const dec = JSON.parse(JSON.stringify(G.draft)); delete dec._turn;
+  G.save.turns.push({ dec, deals: G.save.pending || [] }); G.save.pending = [];
+  G.st = T.resolveTurn(st, dec);
+  if (G.st.over) { finishGame(); return; }
+  G.draft = defaultDraft(G.st); G.draft._turn = G.st.turn; G.msgs = {};
+  G.tab = 'report'; persist(); render(); window.scrollTo(0, 0);
+}
+function finishGame() {
+  const st = G.st; const s = T.standings(st); const rank = s.findIndex(x => x.id === 0) + 1;
+  if (!G.save.opts.practice && !G.save.recorded) {
+    G.stats.games = (G.stats.games || []).concat([{ when: Date.now(), name: st.creators[0].name, niche: st.niche, difficulty: st.difficulty, mode: st.mode, rank, subs: Math.round(st.creators[0].subs), score: Math.round(T.influence(st.creators[0])), turns: st.turn - 1 }]).slice(-50);
+    G.save.recorded = true;
+  }
+  G.screen = 'end'; persist(); render(); window.scrollTo(0, 0);
+}
+
+/* ---------- rendering ---------- */
+function render() {
+  if (G.screen === 'home') $app.innerHTML = homeView();
+  else if (G.screen === 'end') $app.innerHTML = endView();
+  else if (G.screen === 'review') $app.innerHTML = reviewView();
+  else $app.innerHTML = gameView();
+  $layer.innerHTML = G.sheet ? sheetView(G.sheet) : '';
+}
+
+function homeView() {
+  const s = G.setup; const has = G.save && G.st === null ? true : !!G.save;
+  const opt = (key, val, title, sub) => '<button class="opt' + (s[key] === val ? ' on' : '') + '" data-act="setup" data-k="' + key + '" data-v="' + val + '"><b>' + title + '</b><span>' + sub + '</span></button>';
+  const niches = Object.keys(T.NICHES).map(k => opt('niche', k, T.NICHES[k].name, T.NICHES[k].desc)).join('');
+  const best = (G.stats.games || []).slice(-5).reverse();
+  return '<div class="wrap"><div class="hero"><h1>' + LOGO(44) + 'TubeYou</h1><div class="tag">Build a channel. Outthink three rivals. Five years.</div></div>' +
+    '<div class="stack">' +
+    (G.save && !G.save.finishedView ? '<div class="card"><div class="row between"><div><div class="label">Saved game</div><b>' + esc(G.save.opts.channelName || 'My Channel') + '</b> <span class="muted small">· ' + T.NICHES[G.save.opts.niche].name + ' · ' + G.save.opts.difficulty + ' · season ' + (G.save.turns.length + 1) + '</span></div><button class="btn primary" data-act="continue">Continue</button></div></div>' : '') +
+    '<div class="card"><h2>New game</h2>' +
+    '<label class="label" for="cname">Channel name</label><input id="cname" type="text" maxlength="32" placeholder="Grow With Juliyan" value="' + esc(s.channelName) + '">' +
+    '<div class="label">Niche (game mode)</div><div class="grid2">' + niches + '</div>' +
+    '<div class="label">Goal</div><div class="grid2">' + opt('mode', 'turns', '5 years', '30 seasons. Highest score wins.') + opt('mode', 'subs', 'Race to 1M subs', 'First to 1M. Max 10 years.') + opt('mode', 'money', 'Race to €1M', 'First to €1M in the bank.') + '</div>' +
+    '<div class="label">Rivals</div><div class="grid2">' + opt('difficulty', 'easy', 'Easy', 'Rivals misjudge often.') + opt('difficulty', 'normal', 'Normal', 'Solid, predictable rivals.') + opt('difficulty', 'hard', 'Hard', 'Rivals plan ahead and read you.') + opt('difficulty', 'brutal', 'Brutal', 'Rivals learn your habits. No cheating, just better play.') + '</div>' +
+    '<div class="label">Your life</div><div class="grid2">' + opt('path', 'student', 'Student', 'Your real timeline: 12th grade, exams, moving to the Netherlands for uni.') + opt('path', 'fulltime', 'Full-time', '€6K savings, all day free, rent to pay.') + '</div>' +
+    '<button class="btn primary block" data-act="start">Start</button><button class="btn ghost block" data-act="help">How to play</button></div>' +
+    (best.length ? '<div class="card"><h3>Recent results</h3><div class="scroll"><table><tr><th>Channel</th><th>Niche</th><th>Rivals</th><th class="r">Subs</th><th class="r">Place</th></tr>' + best.map(g => '<tr><td>' + esc(g.name) + '</td><td>' + T.NICHES[g.niche].name + '</td><td>' + g.difficulty + '</td><td class="r">' + fmt(g.subs) + '</td><td class="r">' + ['1st', '2nd', '3rd', '4th'][g.rank - 1] + '</td></tr>').join('') + '</table></div></div>' : '') +
+    '</div></div>';
+}
+
+function header() {
+  const st = G.st, c = st.creators[0]; const life = T.lifeStage(c, st.turn);
+  const sc = c.stress > 75 ? 'var(--red)' : c.stress > 50 ? 'var(--orange)' : 'var(--green)';
+  const total = st.mode === 'turns' ? st.maxTurns : '∞';
+  return '<div class="top"><div class="inner"><div class="row between"><div class="brand">' + LOGO(26) + '<b>TubeYou</b><span class="chan">' + esc(c.name) + '</span></div><button class="btn small ghost" data-act="menu" aria-label="Menu">Menu</button></div>' +
+    '<div class="row between small"><b>' + st.news.date + '</b><span class="muted">Season ' + st.turn + (st.mode === 'turns' ? '/' + total : '') + ' · ' + life.label + '</span></div>' +
+    '<div class="stats"><div class="stat"><div class="k">Subs</div><div class="v">' + fmt(c.subs) + '</div></div><div class="stat"><div class="k">Money</div><div class="v" style="color:' + (c.money < 0 ? 'var(--red)' : 'inherit') + '">' + eur(c.money) + '</div></div><div class="stat"><div class="k">Community</div><div class="v">' + Math.round(c.community) + '</div></div><div class="stat"><div class="k">Trust</div><div class="v">' + Math.round(c.trust) + '</div></div></div>' +
+    '<div class="stressline"><span>Stress</span><div class="bar"><i style="width:' + c.stress + '%;background:' + sc + '"></i></div><span class="num">' + (c.burnout > 0 ? '<span class="pill red">BURNOUT</span>' : Math.round(c.stress)) + '</span></div></div></div>';
+}
+
+function tabbar() {
+  const st = G.st, o = st.news.offers[0];
+  const teamDot = (o.staffEvents || []).length > 0 || (T.unlockedFor(st.creators[0]).staff && o.candidates.length && !st.creators[0].staff.length);
+  const rivDot = (o.dealOffers || []).length > 0;
+  const ic = { plan: '<path d="M4 5h16M4 12h16M4 19h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/>', rivals: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/>', team: '<circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="17" cy="9" r="2.6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M14 15.5c3.5-.8 7 1.2 7 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>', report: '<path d="M5 3h10l4 4v14H5z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M8 12h8M8 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' };
+  const b = (k, l, dot) => '<button class="' + (G.tab === k ? 'on' : '') + '" data-act="tab" data-v="' + k + '"><svg viewBox="0 0 24 24">' + ic[k] + '</svg>' + l + (dot ? '<span class="dot"></span>' : '') + '</button>';
+  return '<nav class="tabs"><div class="in">' + b('plan', 'Plan') + b('rivals', 'Rivals', rivDot) + b('team', 'Team', teamDot) + b('report', 'Report') + '</div></nav>';
+}
+
+function gameView() {
+  let body = '';
+  if (G.tab === 'plan') body = planView(); else if (G.tab === 'rivals') body = rivalsView(); else if (G.tab === 'team') body = teamView(); else body = reportView();
+  const end = G.tab === 'plan' ? '<div class="endbar"><div class="in"><button class="btn primary" data-act="end">End season · ' + G.st.news.date + '</button></div></div>' : (G.tab === 'report' && G.st.lastReport ? '<div class="endbar"><div class="in"><button class="btn primary" data-act="tab" data-v="plan">Plan ' + G.st.news.date + '</button></div></div>' : '');
+  return header() + '<div class="wrap"><div class="stack" style="padding-top:14px">' + body + '</div></div>' + end + tabbar();
+}
+
+function stepper(key, label, sub, color, val, step) {
+  return '<div class="stepper"><div class="name"><span class="sw" style="background:' + color + '"></span><div>' + label + '<small>' + sub + '</small></div></div><div class="ctrl"><button data-act="step" data-k="' + key + '" data-d="' + (-step) + '" aria-label="Less ' + label + '">−</button><span class="val">' + val + '</span><button data-act="step" data-k="' + key + '" data-d="' + step + '" aria-label="More ' + label + '">+</button></div></div>';
+}
+
+function planView() {
+  const st = G.st, c = st.creators[0], n = st.news, d = G.draft;
+  const P = T.preview(st, d); const pr = P.pr; const R = d.routine;
+  const u = T.unlockedFor(c);
+  let out = '';
+  // brief
+  const ev = n.events.map(e => '<div class="item"><b>' + e.title + '</b><span class="small muted">' + e.text + '</span></div>').join('');
+  const life = pr.life;
+  out += '<div class="card"><div class="row between"><h2>This season</h2><span class="pill">' + life.label + '</span></div>' +
+    '<div class="small">You have <b>' + (16 - pr.obl).toFixed(1) + ' free hours a day</b> after ' + pr.obl.toFixed(1) + ' h of school, uni and life.</div>' + (ev ? '<div class="list">' + ev + '</div>' : '') +
+    (st.turn === 1 ? '<div class="note">Tip: you lose by failing and win by reviewing. After the game, the coach shows your three costliest decisions.</div>' : '') + '</div>';
+  // routine
+  const segs = [['obl', pr.obl]].concat(['deep', 'pack', 'comm', 'study', 'gym', 'job'].map(k => [k, pr.R[k]])).concat([['free', pr.free]]);
+  const bar = segs.filter(s => s[1] > 0).map(s => '<span title="' + ACT[s[0]][0] + '" style="width:' + (s[1] / 16 * 100) + '%;background:' + ACT[s[0]][1] + '"></span>').join('');
+  const used = R.deep + R.pack + R.comm + R.study + R.gym + R.job;
+  const avail = 16 - pr.obl;
+  const capNote = pr.over > 0 ? '<div class="note warn">Your focus lasts about ' + pr.cap.toFixed(1) + ' h of deep work today. The ' + pr.over.toFixed(1) + ' h beyond that run at 35% efficiency. Gym and free time between blocks raise the limit.</div>' : '<div class="note">Focus capacity: ' + pr.cap.toFixed(1) + ' h of deep work (4 h base, more with gym, free time and study between blocks).</div>';
+  const sd = P.stressDelta; const sdTxt = c.burnout > 0 ? 'You are recovering from burnout this season.' : (sd > 0 ? 'Stress will rise by ~' + Math.round(sd) + ' to ' + Math.round(P.stressNext) + '.' : 'Stress will fall by ~' + Math.round(-sd) + ' to ' + Math.round(P.stressNext) + '.') + (P.stressNext >= 100 ? ' That means BURNOUT: next season you work at 25%.' : '');
+  out += '<div class="card"><div class="row between"><h2>Your typical day</h2><span class="small num ' + (used > avail ? 'you' : 'muted') + '">' + used.toFixed(1) + ' / ' + avail.toFixed(1) + ' h</span></div><div class="day">' + bar + '</div>' +
+    '<div class="legend">' + segs.filter(s => s[1] > 0).map(s => '<span><i style="background:' + ACT[s[0]][1] + '"></i>' + ACT[s[0]][0] + ' ' + s[1].toFixed(1) + 'h</span>').join('') + '</div>' +
+    (used > avail ? '<div class="note bad">That is more than your free hours, so everything gets squeezed proportionally.</div>' : '') +
+    '<div>' + stepper('deep', 'Deep work', 'Scripting, filming, editing', ACT.deep[1], R.deep.toFixed(1) + 'h', 0.5) +
+    stepper('pack', 'Packaging', 'Thumbnails and titles (CTR)', ACT.pack[1], R.pack.toFixed(1) + 'h', 0.5) +
+    stepper('comm', 'Community', 'Comments, Discord, posts', ACT.comm[1], R.comm.toFixed(1) + 'h', 0.5) +
+    stepper('study', 'Study', 'Books and courses: grows a skill', ACT.study[1], R.study.toFixed(1) + 'h', 0.5) +
+    stepper('gym', 'Gym', 'Lowers stress, sharpens focus', ACT.gym[1], R.gym.toFixed(1) + 'h', 0.5) +
+    stepper('job', 'Part-time job', '€11/h. Money now, less time', ACT.job[1], R.job.toFixed(1) + 'h', 0.5) + '</div>' +
+    '<div class="label">Study focus</div><div class="seg">' + [['craft', 'Craft'], ['pack', 'Packaging'], ['biz', 'Business']].map(f => '<button class="' + (d.studyFocus === f[0] ? 'on' : '') + '" data-act="focus" data-v="' + f[0] + '">' + f[1] + '</button>').join('') + '</div>' +
+    capNote + '<div class="note ' + (P.stressNext >= 85 ? 'bad' : sd > 0 ? 'warn' : '') + '">' + sdTxt + '</div>' +
+    '<div class="meter"><span>Craft</span><div class="bar"><i style="width:' + c.craft + '%;background:var(--blue)"></i></div><span class="num">' + Math.round(c.craft) + '</span></div>' +
+    '<div class="meter"><span>Packaging</span><div class="bar"><i style="width:' + c.pack + '%;background:var(--pink)"></i></div><span class="num">' + Math.round(c.pack) + '</span></div>' +
+    '<div class="meter"><span>Business</span><div class="bar"><i style="width:' + c.biz + '%;background:var(--purple)"></i></div><span class="num">' + Math.round(c.biz) + '</span></div></div>';
+  // videos
+  const nT = d.videos.trends.reduce((a, b) => a + b, 0);
+  const trendCards = n.trends.map((tr, j) => {
+    const k = d.videos.trends[j]; const pact = st.deals.find(x => x.turn === st.turn && x.status === 'accepted' && x.type === 'pact' && x.a === 0 && x.aAvoid === j);
+    return '<div class="trend' + (k > 0 ? ' on' : '') + '"><div class="row between"><b>' + esc(tr.name) + '</b><span class="pill size-' + tr.size + '">' + T.SIZE_LABEL[tr.size] + '</span></div><div class="row between"><span class="small muted">~' + fmt(tr.pool) + ' extra views, split by everyone who enters</span><div class="ctrl"><button data-act="trend" data-j="' + j + '" data-d="-1" aria-label="Fewer">−</button><span class="val">' + k + '</span><button data-act="trend" data-j="' + j + '" data-d="1" aria-label="More">+</button></div></div>' + (pact ? '<div class="note ' + (k > 0 ? 'bad' : 'warn') + '">You promised ' + esc(st.creators[pact.b].name) + ' to stay out of this one.' + (k > 0 ? ' Entering breaks the pact: −40 relationship, others trust you less.' : '') + '</div>' : '') + '</div>';
+  }).join('');
+  const rumor = n.nextTrends.length ? '<div class="small muted">Rumour for next season: ' + n.nextTrends.map(t => '<b>' + esc(t.name) + '</b> (' + T.SIZE_LABEL[t.size] + ')').join(', ') + '</div>' : '';
+  const qa = pr.nv > 0 ? '<div class="meter"><span>Quality</span><div class="bar"><i style="width:' + pct(pr.Q) + ';background:var(--blue)"></i></div><span class="num">' + pct(pr.Q) + '</span></div><div class="meter"><span>CTR power</span><div class="bar"><i style="width:' + pct(pr.C) + ';background:var(--pink)"></i></div><span class="num">' + pct(pr.C) + '</span></div>' : '';
+  out += '<div class="card"><div class="row between"><h2>Videos this season</h2><span class="pill blue num">' + pr.nv + ' videos</span></div>' +
+    '<div class="small muted">Trends compete. Everyone commits in secret, and a crowded trend gets split. Evergreen videos keep earning views every season.</div>' +
+    '<div class="trend' + (d.videos.ever > 0 ? ' on' : '') + '" style="' + (d.videos.ever > 0 ? 'border-color:var(--blue);background:var(--blue-soft)' : '') + '"><div class="row between"><div><b>Evergreen videos</b><div class="small muted">Searchable. Build your library (' + fmt(c.library) + ' views/season now).</div></div><div class="ctrl"><button data-act="ever" data-d="-1" aria-label="Fewer">−</button><span class="val">' + d.videos.ever + '</span><button data-act="ever" data-d="1" aria-label="More">+</button></div></div></div>' +
+    trendCards + rumor +
+    (pr.nv > 0 ? '<div class="small"><b>' + pr.p.toFixed(0) + ' h</b> of production and <b>' + pr.ph.toFixed(1) + ' h</b> of packaging per video.</div>' : '<div class="note bad">No videos this season. Subscribers will churn twice as fast.</div>') + qa +
+    (P.clickbait ? '<div class="note warn">Your packaging promises more than the video delivers (clickbait). Trust will drop.</div>' : '') + '</div>';
+  // deals summary
+  const myDeals = st.deals.filter(x => x.turn === st.turn && x.status === 'accepted' && (x.a === 0 || x.b === 0));
+  if (myDeals.length) out += '<div class="card"><h3>Deals this season</h3>' + myDeals.map(x => '<div class="small">' + (x.type === 'collab' ? 'Collab with <b>' + esc(st.creators[x.b].name) + '</b> (costs 15 h of your production).' : 'Pact with <b>' + esc(st.creators[x.b].name) + '</b>: you skip "' + esc(n.trends[x.aAvoid].name) + '", they skip "' + esc(n.trends[x.bAvoid].name) + '".') + '</div>').join('') + '</div>';
+  // money
+  const o = n.offers[0];
+  const sp = o.sponsors.map(s => { const on = d.sponsors.includes(s.id); return '<div class="item' + (on ? ' sel' : '') + '"><div class="row between"><b>' + esc(s.brand) + '</b><span class="pill ' + (s.quality === 'good' ? 'green' : s.quality === 'meh' ? 'orange' : 'red') + '">' + (s.quality === 'good' ? 'Good product' : s.quality === 'meh' ? 'Meh product' : 'Sketchy') + '</span></div><div class="row between"><span class="small">' + eur(s.pay) + ' for ' + s.videos + ' sponsored video' + (s.videos > 1 ? 's' : '') + '</span><button class="btn small ' + (on ? 'primary' : 'ghost') + '" data-act="sponsor" data-v="' + s.id + '">' + (on ? 'Accepted' : 'Accept') + '</button></div></div>'; }).join('');
+  const income = P.ads + P.sponsorPay + P.wages; const costs = P.living + P.salaries + P.rent + (d.gear != null ? T.GEAR[d.gear].cost : 0) + (d.product ? T.PRODUCT_COST : 0);
+  const gearNext = c.gear < 3 ? T.GEAR[c.gear + 1] : null;
+  out += '<div class="card"><div class="row between"><h2>Money</h2><span class="pill ' + (income - costs >= 0 ? 'green' : 'red') + ' num">' + (income - costs >= 0 ? '+' : '') + eur(Math.round(income - costs)) + ' forecast</span></div>' +
+    '<table><tr><td>Ad revenue' + (P.monet ? '' : ' <span class="muted small">(unlocks at 1K subs)</span>') + '</td><td class="r">' + eur(Math.round(P.ads)) + '</td></tr><tr><td>Sponsors</td><td class="r">' + eur(P.sponsorPay) + '</td></tr><tr><td>Part-time job</td><td class="r">' + eur(Math.round(P.wages)) + '</td></tr><tr><td>Living costs</td><td class="r">−' + eur(P.living) + '</td></tr>' + (P.salaries ? '<tr><td>Salaries</td><td class="r">−' + eur(Math.round(P.salaries)) + '</td></tr>' : '') + (P.rent ? '<tr><td>Content house rent</td><td class="r">−' + eur(P.rent) + '</td></tr>' : '') + '</table>' +
+    '<div class="small muted">Ad revenue is a forecast without trend views. If money goes below zero you work extra shifts next season.</div>' +
+    (u.sponsors ? (sp ? '<div class="label">Sponsor offers</div><div class="list">' + sp + '</div>' : '<div class="small muted">No sponsor offers this season.</div>') : '<div class="small muted">Sponsors unlock at 5K subs.</div>') +
+    (gearNext ? '<div class="item' + (d.gear != null ? ' sel' : '') + '"><div class="row between"><div><b>Upgrade to ' + gearNext.name + '</b><div class="small muted">Now: ' + T.GEAR[c.gear].name + '. +' + Math.round((gearNext.q / T.GEAR[c.gear].q - 1) * 100) + '% quality' + (gearNext.pack ? ', +' + gearNext.pack + ' packaging' : '') + '</div></div><button class="btn small ' + (d.gear != null ? 'primary' : 'ghost') + '" data-act="gear" ' + (c.money < gearNext.cost && d.gear == null ? 'disabled' : '') + '>' + eur(gearNext.cost) + '</button></div></div>' : '') +
+    (u.product ? (c.product ? '<div class="item"><div class="row between"><div><b>Your product</b><div class="small muted">Earned ' + eur(Math.round(c.product.total || 0)) + ' so far. Sales fall 15% a season.</div></div><button class="btn small ghost" data-act="retire">' + (d.retireProduct ? 'Keeping: undo' : 'Retire it') + '</button></div></div>' : '<div class="item' + (d.product ? ' sel' : '') + '"><div class="row between"><div><b>Launch a product</b><div class="small muted">' + eur(T.PRODUCT_COST) + ' + 40 h. Sales scale with community, subs and trust.</div></div><button class="btn small ' + (d.product ? 'primary' : 'ghost') + '" data-act="product" ' + (c.money < T.PRODUCT_COST && !d.product ? 'disabled' : '') + '>' + (d.product ? 'Launching' : 'Launch') + '</button></div></div>') : '') +
+    (u.house ? '<div class="item' + ((d.house === true || (c.house && d.house !== false)) ? ' sel' : '') + '"><div class="row between"><div><b>Content house</b><div class="small muted">' + eur(T.HOUSE_RENT) + '/season. Live with your team: +morale, +output, but +stress and drama risk. Needs 2+ staff.</div></div><button class="btn small ghost" data-act="house" ' + (c.staff.length < 2 && !c.house ? 'disabled' : '') + '>' + (c.house ? (d.house === false ? 'Moving out' : 'Move out') : (d.house ? 'Moving in' : 'Move in')) + '</button></div></div>' : '') +
+    (c.path === 'student' && st.turn >= 6 && !c.droppedOut && st.turn < 29 ? '<div class="item' + (d.dropOut ? ' sel' : '') + '"><div class="row between"><div><b>Drop out of uni</b><div class="small muted">Uni hours drop to 1 h/day. Your parents stop the €900/season support. You cannot undo this.</div></div><button class="btn small ghost" data-act="dropout">' + (d.dropOut ? 'Dropping out' : 'Drop out') + '</button></div></div>' : '') +
+    '</div>';
+  return out;
+}
+
+function styleRead(st, c) {
+  const h = (st.trendHistory && st.trendHistory[c.id]) || [];
+  if (h.length < 2) return 'Not enough seasons to read yet.';
+  const any = h.filter(x => x.any).length / h.length, big = h.filter(x => x.wentBiggest).length / h.length;
+  const n = c.lastDecision ? c.lastDecision.videos.total : 0;
+  return 'Enters trends in ' + pct(any) + ' of seasons, the biggest one ' + pct(big) + ' of the time. Uploaded ' + n + ' videos last season.';
+}
+function chart(st) {
+  const H = st.history; if (H.length < 2) return '';
+  const W = 320, Ht = 150, pad = 30; const max = Math.max(1, ...H.flatMap(h => h.c.map(x => x.i)));
+  const x = i => pad + i / (H.length - 1) * (W - pad - 8); const y = v => Ht - 18 - v / max * (Ht - 30);
+  const lines = st.creators.map((c, k) => '<polyline fill="none" stroke="' + COLORS[k] + '" stroke-width="' + (k === 0 ? 3 : 2) + '" stroke-linejoin="round" points="' + H.map((h, i) => x(i).toFixed(1) + ',' + y(h.c[k].i).toFixed(1)).join(' ') + '"/>').join('');
+  const grid = [0, 0.5, 1].map(f => '<line x1="' + pad + '" x2="' + (W - 8) + '" y1="' + y(max * f) + '" y2="' + y(max * f) + '" stroke="#ECE6DD"/><text x="' + (pad - 4) + '" y="' + (y(max * f) + 4) + '" font-size="9" text-anchor="end" fill="#6F6A64">' + fmt(max * f) + '</text>').join('');
+  const xl = '<text x="' + pad + '" y="' + (Ht - 4) + '" font-size="9" fill="#6F6A64">' + T.dateOf(H[0].turn).label.split(' ').pop() + '</text><text x="' + (W - 8) + '" y="' + (Ht - 4) + '" font-size="9" text-anchor="end" fill="#6F6A64">' + T.dateOf(H[H.length - 1].turn).label + '</text>';
+  return '<div class="chart"><svg viewBox="0 0 ' + W + ' ' + Ht + '" role="img" aria-label="Score over time">' + grid + lines + xl + '</svg></div><div class="legend">' + st.creators.map((c, k) => '<span><i style="background:' + COLORS[k] + '"></i>' + esc(c.name) + '</span>').join('') + '</div>';
+}
+
+function rivalsView() {
+  const st = G.st, n = st.news, me = st.creators[0];
+  const S = T.standings(st);
+  let out = '<div class="card"><h2>Leaderboard</h2><div class="small muted">Score = subs × (1 + community/200 + trust/400). Subs count most, then community, then trust.</div><div class="scroll"><table><tr><th>#</th><th>Channel</th><th class="r">Score</th><th class="r">Subs</th><th class="r">Comm.</th><th class="r">Trust</th></tr>' +
+    S.map((s, i) => { const c = st.creators[s.id]; return '<tr><td>' + (i + 1) + '</td><td class="' + (c.human ? 'you' : '') + '">' + esc(c.name) + '</td><td class="r">' + fmt(s.influence) + '</td><td class="r">' + fmt(c.subs) + '</td><td class="r">' + Math.round(c.community) + '</td><td class="r">' + Math.round(c.trust) + '</td></tr>'; }).join('') + '</table></div>' + chart(st) + '</div>';
+  // incoming offers
+  const offers = (n.offers[0].dealOffers || []);
+  if (offers.length) out += '<div class="card"><h2>Offers to you</h2>' + offers.map(of => {
+    const from = st.creators[of.from]; const done = G.msgs['offer' + of.id];
+    const txt = of.type === 'collab' ? '<b>' + esc(from.name) + '</b> wants to collab. Both gain subs from each other\'s audience. It costs 15 h of production.' : '<b>' + esc(from.name) + '</b> proposes a pact: you stay out of "' + esc(n.trends[of.youAvoid].name) + '" (' + T.SIZE_LABEL[n.trends[of.youAvoid].size] + '), they stay out of "' + esc(n.trends[of.theyAvoid].name) + '" (' + T.SIZE_LABEL[n.trends[of.theyAvoid].size] + ').';
+    return '<div class="item"><div class="small">' + txt + '</div>' + (done ? '<div class="note">' + esc(done) + '</div>' : '<div class="row"><button class="btn small primary" data-act="acceptOffer" data-v="' + of.id + '">Accept</button><button class="btn small ghost" data-act="ignoreOffer" data-v="' + of.id + '">Ignore</button></div>') + '</div>';
+  }).join('') + '</div>';
+  // rivals
+  st.creators.slice(1).forEach(c => {
+    const rel = c.relation[0] || 0; const m = G.msgs['r' + c.id];
+    const sel = G.msgs['pact' + c.id] || { you: 0, they: 1 };
+    const trendOpts = (v) => n.trends.map((t, j) => '<option value="' + j + '"' + (j === v ? ' selected' : '') + '>' + esc(t.name) + ' (' + T.SIZE_LABEL[t.size] + ')</option>').join('');
+    out += '<div class="card"><div class="row between"><h3>' + esc(c.name) + '</h3><span class="pill">' + fmt(c.subs) + ' subs</span></div>' +
+      '<div class="small">' + styleRead(st, c) + '</div>' +
+      '<div class="row wrapflex small"><span class="pill ' + (rel >= 20 ? 'green' : rel <= -20 ? 'red' : '') + '">Relationship ' + (rel > 0 ? '+' : '') + Math.round(rel) + '</span><span class="pill">Deals kept ' + c.deals.kept + ' · broken ' + c.deals.broken + '</span><span class="pill">' + c.staff.length + ' staff</span>' + (c.droppedOut ? '<span class="pill orange">Dropped out</span>' : '') + '</div>' +
+      (m ? '<div class="note ' + (m.ok ? '' : 'warn') + '">' + esc(m.text) + '</div>' : '') +
+      '<div class="row wrapflex"><button class="btn small ghost" data-act="collab" data-v="' + c.id + '">Propose collab</button></div>' +
+      '<div class="label">Pact: you skip / they skip</div><div class="grid2"><select id="py' + c.id + '" data-act="pactsel" data-v="' + c.id + '">' + trendOpts(sel.you) + '</select><select id="pt' + c.id + '" data-act="pactsel" data-v="' + c.id + '">' + trendOpts(sel.they) + '</select></div><button class="btn small ghost" data-act="pact" data-v="' + c.id + '">Propose pact</button></div>';
+  });
+  return out;
+}
+
+function teamView() {
+  const st = G.st, c = st.creators[0], o = st.news.offers[0], d = G.draft; const u = T.unlockedFor(c);
+  let out = '<div class="card"><h2>Milestones</h2><div class="list">' + T.UNLOCKS.map(x => { const got = c.peakSubs >= x.subs; return '<div class="row between small"><span>' + (got ? '✓ ' : '') + '<b>' + x.label + '</b></span><span class="' + (got ? 'pill green' : 'muted') + '">' + fmt(x.subs) + ' subs</span></div>'; }).join('') + '</div></div>';
+  if (!u.staff) return out + '<div class="card"><h2>Team</h2><div class="small muted">You can hire once you reach 10K subscribers. Until then it\'s just you.</div></div>';
+  const evs = (o.staffEvents || []).map(ev => {
+    if (ev.kind === 'raise') { const on = d.raises.includes(ev.staffId); return '<div class="item"><div class="small">' + esc(ev.text) + '</div><button class="btn small ' + (on ? 'primary' : 'ghost') + '" data-act="raise" data-v="' + ev.staffId + '">' + (on ? 'Raise granted' : 'Grant raise') + '</button></div>'; }
+    if (ev.kind === 'drama') return '<div class="item"><div class="small">' + esc(ev.text) + '</div><div class="seg"><button class="' + (d._mediate ? 'on' : '') + '" data-act="drama" data-v="m">Mediate</button><button class="' + (d.ignoreDrama ? 'on' : '') + '" data-act="drama" data-v="i">Ignore</button></div></div>';
+    return '<div class="item"><div class="small">' + esc(ev.text) + '</div></div>';
+  }).join('');
+  if (evs) out += '<div class="card"><h2>Team news</h2><div class="list">' + evs + '</div></div>';
+  out += '<div class="card"><div class="row between"><h2>Your team</h2><span class="pill">' + c.staff.length + ' staff</span></div>' + (c.staff.length ? '<div class="list">' + c.staff.map(s => {
+    const fired = d.fire.includes(s.id); const pay = d.pay[s.id] || s.pay || 'fair';
+    return '<div class="item' + (fired ? '' : '') + '" style="' + (fired ? 'opacity:.5' : '') + '"><div class="row between"><b>' + esc(s.name) + '</b><span class="pill blue">' + T.STAFF_ROLES[s.role].label + ' ' + '★'.repeat(s.stars) + '</span></div>' +
+      '<div class="row wrapflex">' + s.traits.map(t => '<span class="pill" title="' + T.TRAITS[t].desc + '">' + T.TRAITS[t].label + '</span>').join('') + '</div>' +
+      '<div class="small muted">' + s.traits.map(t => T.TRAITS[t].label + ': ' + T.TRAITS[t].desc).join(' · ') + '</div>' +
+      '<div class="meter"><span>Morale</span><div class="bar"><i style="width:' + s.morale + '%;background:' + (s.morale < 40 ? 'var(--red)' : s.morale < 60 ? 'var(--orange)' : 'var(--green)') + '"></i></div><span class="num">' + Math.round(s.morale) + '</span></div>' +
+      '<div class="label">Pay (' + eur(s.salary) + ' base/season)</div><div class="seg">' + [['low', 'Low ×0.8'], ['fair', 'Fair'], ['generous', 'Generous ×1.3']].map(p => '<button class="' + (pay === p[0] ? 'on' : '') + '" data-act="pay" data-id="' + s.id + '" data-v="' + p[0] + '">' + p[1] + '</button>').join('') + '</div>' +
+      '<button class="btn small ghost" data-act="fire" data-v="' + s.id + '">' + (fired ? 'Keep' : 'Let go') + '</button></div>';
+  }).join('') + '</div>' : '<div class="small muted">No one yet. Morale depends on pay, the content house, your stress and how fast the channel grows.</div>') + '</div>';
+  out += '<div class="card"><h2>Candidates</h2><div class="small muted">New people apply every season. Bigger channels attract better talent.</div><div class="list">' + o.candidates.map(cd => {
+    const on = d.hire.includes(cd.id);
+    return '<div class="item' + (on ? ' sel' : '') + '"><div class="row between"><b>' + esc(cd.name) + '</b><span class="pill blue">' + T.STAFF_ROLES[cd.role].label + ' ' + '★'.repeat(cd.stars) + '</span></div><div class="small">' + T.STAFF_ROLES[cd.role].desc + '</div><div class="small muted">' + cd.traits.map(t => T.TRAITS[t].label + ': ' + T.TRAITS[t].desc).join(' · ') + '</div><div class="row between"><span class="small"><b>' + eur(cd.salary) + '</b>/season</span><button class="btn small ' + (on ? 'primary' : 'ghost') + '" data-act="hire" data-v="' + cd.id + '">' + (on ? 'Hiring' : 'Hire') + '</button></div></div>';
+  }).join('') + '</div></div>';
+  return out;
+}
+
+function reportView() {
+  const st = G.st, r = st.lastReport;
+  if (!r) return '<div class="card"><h2>No report yet</h2><div class="small muted">Plan your first season and tap End season. Here you will see what everyone did, because all moves are secret until then.</div></div>';
+  const me = r.creators[0]; const c = st.creators[0];
+  let out = '<div class="card"><div class="row between"><h2>' + r.date + ' results</h2><span class="pill ' + (me.subsGain >= 0 ? 'green' : 'red') + '">' + (me.subsGain >= 0 ? '+' : '') + fmt(me.subsGain) + ' subs</span></div>' +
+    '<table><tr><td>Views</td><td class="r">' + fmt(me.views) + '</td></tr><tr><td class="muted">· from your library</td><td class="r">' + fmt(me.libViews) + '</td></tr><tr><td class="muted">· from trends</td><td class="r">' + fmt(me.trendViews) + '</td></tr><tr><td>Videos · quality · CTR</td><td class="r">' + me.nv + ' · ' + pct(me.Q) + ' · ' + pct(me.C) + '</td></tr><tr><td>Lost subs (churn)</td><td class="r">−' + fmt(me.churn) + '</td></tr><tr><td>Income</td><td class="r">' + eur(me.ads + me.sponsor + me.product) + ' + job</td></tr><tr><td>Costs</td><td class="r">−' + eur(me.costs) + '</td></tr></table>' +
+    ((r.notes[0] || []).length ? '<div class="list">' + r.notes[0].map(t => '<div class="note">' + esc(t) + '</div>').join('') + '</div>' : '') + '</div>';
+  out += '<div class="card"><h2>Trend battles</h2><div class="small muted">Secret moves revealed. Shares are of each trend\'s extra views.</div>' + r.trends.map(t => '<div class="item"><div class="row between"><b>' + esc(t.name) + '</b><span class="pill size-' + t.size + '">' + T.SIZE_LABEL[t.size] + ' · ' + fmt(t.pool) + '</span></div>' +
+    (t.shares.length ? t.shares.sort((a, b) => b.share - a.share).map(s => '<div class="meter"><span class="' + (s.id === 0 ? 'you' : '') + '" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(st.creators[s.id].name) + '</span><div class="bar"><i style="width:' + pct(s.share) + ';background:' + COLORS[s.id] + '"></i></div><span class="num">' + pct(s.share) + '</span></div>').join('') : '<div class="small muted">Nobody entered. Free views left on the table.</div>') + '</div>').join('') + '</div>';
+  if (r.deals.length) out += '<div class="card"><h2>Deals</h2>' + r.deals.map(x => {
+    const A = st.creators[x.a].name, B = st.creators[x.b].name;
+    if (x.type === 'collab') return '<div class="small">' + esc(A) + ' × ' + esc(B) + ' collabed.</div>';
+    return '<div class="small">Pact ' + esc(A) + ' / ' + esc(B) + ': ' + (x.aBroke ? '<b style="color:var(--red)">' + esc(A) + ' broke it</b>' : esc(A) + ' kept it') + ', ' + (x.bBroke ? '<b style="color:var(--red)">' + esc(B) + ' broke it</b>' : esc(B) + ' kept it') + '.</div>';
+  }).join('') + '</div>';
+  out += '<div class="card"><h2>Rivals last season</h2><div class="scroll"><table><tr><th>Channel</th><th class="r">Videos</th><th class="r">Subs</th><th class="r">Views</th></tr>' + st.creators.map(cc => { const x = r.creators[cc.id]; return '<tr><td class="' + (cc.human ? 'you' : '') + '">' + esc(cc.name) + '</td><td class="r">' + x.nv + '</td><td class="r">' + (x.subsGain >= 0 ? '+' : '') + fmt(x.subsGain) + '</td><td class="r">' + fmt(x.views) + '</td></tr>'; }).join('') + '</table></div></div>';
+  return out;
+}
+
+function endView() {
+  const st = G.st; const S = T.standings(st); const rank = S.findIndex(x => x.id === 0) + 1; const c = st.creators[0];
+  const title = rank === 1 ? 'You won.' : ['', '', 'Second place.', 'Third place.', 'Last place.'][rank];
+  return '<div class="wrap"><div class="hero"><h1>' + LOGO(40) + 'TubeYou</h1><div class="tag">' + esc(st.endReason || '') + '</div></div><div class="stack">' +
+    '<div class="card"><h2>' + title + '</h2><div class="small">' + esc(c.name) + ' finished with <b>' + fmt(c.subs) + ' subs</b>, ' + eur(Math.round(c.money)) + ', community ' + Math.round(c.community) + ', trust ' + Math.round(c.trust) + '.</div>' +
+    '<div class="scroll"><table><tr><th>#</th><th>Channel</th><th class="r">Score</th><th class="r">Subs</th><th class="r">Money</th></tr>' + S.map((s, i) => '<tr><td>' + (i + 1) + '</td><td class="' + (s.id === 0 ? 'you' : '') + '">' + esc(s.name) + (s.id ? ' <span class="muted tiny">' + T.PERSONAS[st.creators[s.id].persona].label + '</span>' : '') + '</td><td class="r">' + fmt(s.influence) + '</td><td class="r">' + fmt(s.subs) + '</td><td class="r">' + eur(Math.round(s.money)) + '</td></tr>').join('') + '</table></div>' + chart(st) + '</div>' +
+    '<div class="card"><h2>Now the useful part</h2><div class="small">The coach replays your game, tests what a stronger plan would have done each season (same rivals, same trends) and shows your three costliest decisions. You can rewind to any of them and play it differently.</div><button class="btn primary block" data-act="review">Review my game</button></div>' +
+    '<div class="row"><button class="btn ghost block" data-act="home">New game</button></div></div></div>';
+}
+
+/* ---------- review ---------- */
+const PART = { routine: 'Daily routine', volume: 'How many videos', trends: 'Trend choices' };
+function explain(t, key) {
+  const m = t.mine, r = t.rec; const rep = t.rep;
+  if (key === 'routine') {
+    const a = m.routine, b = r.routine; const bits = [];
+    if (a.deep > t.cap + 0.25) bits.push('You did ' + a.deep.toFixed(1) + ' h of deep work but your focus capacity was ' + t.cap.toFixed(1) + ' h. The extra hours ran at 35%.');
+    if (t.stress > 70) bits.push('Your stress was ' + Math.round(t.stress) + '. Above 70 everything you do is 15% weaker.');
+    if ((a.gym || 0) < (b.gym || 0) - 0.4) bits.push('More gym (' + b.gym.toFixed(1) + ' h) would have raised focus and kept stress down.');
+    if ((a.study || 0) < (b.study || 0) - 0.4) bits.push('Study compounds. ' + b.study.toFixed(1) + ' h/day would have grown your skills faster.');
+    if ((a.job || 0) > (b.job || 0) + 0.4) bits.push('The part-time job cost more channel time than the money was worth.');
+    if ((a.pack || 0) < (b.pack || 0) - 0.4) bits.push('Packaging was under-invested: ' + a.pack.toFixed(1) + ' h vs ' + b.pack.toFixed(1) + ' h.');
+    if (!bits.length) bits.push('The coach would have split your hours as deep ' + b.deep.toFixed(1) + ', packaging ' + b.pack.toFixed(1) + ', community ' + b.comm.toFixed(1) + ', study ' + b.study.toFixed(1) + ', gym ' + b.gym.toFixed(1) + '.');
+    return bits.join(' ');
+  }
+  if (key === 'volume') return 'You made ' + m.videos.total + ' videos at ' + pct(rep.creators[0].Q) + ' quality. The coach would have made ' + r.videos.total + '. ' + (m.videos.total > r.videos.total ? 'Fewer, better videos convert more viewers into subscribers. Quality counts more than volume.' : 'You left output on the table. More videos at this quality level would still have paid off.');
+  if (key === 'trends') {
+    const lines = t.trends.map((tr, j) => { const mine = m.videos.trends[j], co = r.videos.trends[j]; const row = rep.trends[j]; const n = row.shares.filter(s => s.id !== 0).length; const myShare = row.shares.find(s => s.id === 0);
+      if (mine > 0 && co === 0) return 'You put ' + mine + ' into "' + tr.name + '" against ' + n + ' rival' + (n === 1 ? '' : 's') + (myShare ? ' and got only ' + pct(myShare.share) + ' of it' : '') + '. Evergreen would have paid more.';
+      if (mine === 0 && co > 0) return (n === 0 ? '"' + tr.name + '" (' + T.SIZE_LABEL[tr.size] + ', ~' + fmt(tr.pool) + ' views) was empty. ' : 'Even with ' + n + ' rival' + (n === 1 ? '' : 's') + ' in "' + tr.name + '" (' + T.SIZE_LABEL[tr.size] + ', ~' + fmt(tr.pool) + ' views), a share was worth more than evergreen at your size. ') + 'The coach would have put ' + co + ' video' + (co > 1 ? 's' : '') + ' there.';
+      if (mine !== co) return '"' + tr.name + '": you made ' + mine + ', the coach would have made ' + co + '.';
+      return ''; }).filter(Boolean);
+    if (t.subs < 20000 && lines.length) lines.push('Small channels gain the most from trends: the views are huge compared with your own audience.');
+    return lines.join(' ') || 'Your trend mix was close to the coach\'s.';
+  }
+  return '';
+}
+function runReview() {
+  G.sheet = { kind: 'busy' }; render();
+  setTimeout(() => {
+    try { G.review = T.review(G.save); } catch (e) { G.review = []; console.error(e); }
+    G.sheet = null; G.screen = 'review'; render(); window.scrollTo(0, 0);
+  }, 30);
+}
+function reviewView() {
+  const R = G.review || [];
+  const rows = R.map(t => { let best = null; Object.keys(t.parts).forEach(k => { const g = t.parts[k].gain; if (!best || g > best.g) best = { k, g }; }); const lossPct = Math.max(0, best.g) / Math.max(1, t.base); return { t, best, lossPct }; });
+  const strip = rows.map(x => '<i title="' + x.t.date + '" style="background:' + (x.lossPct < 0.02 ? 'var(--green)' : x.lossPct < 0.08 ? 'var(--orange)' : 'var(--red)') + '"></i>').join('');
+  const good = rows.filter(x => x.lossPct < 0.02).length;
+  const top = rows.slice().sort((a, b) => b.lossPct - a.lossPct).slice(0, 3).filter(x => x.lossPct >= 0.01);
+  const cards = top.map((x, i) => '<div class="card"><div class="row between"><h3>' + (i + 1) + '. ' + x.t.date + '</h3><span class="pill red">Coach plan: +' + pct(Math.min(9.99, x.lossPct)) + '</span></div><div class="label">' + PART[x.best.k] + '</div><div class="note">' + esc(explain(x.t, x.best.k)) + '</div>' +
+    '<div class="small muted">Measured by replaying that season with the coach\'s choice for this one part (same rivals, same trends) and projecting 3 seasons ahead. "+' + pct(Math.min(9.99, x.lossPct)) + '" means your channel would have been worth that much more.</div><button class="btn small primary" data-act="rewind" data-v="' + x.t.turn + '">Replay from ' + x.t.date + '</button></div>').join('');
+  return '<div class="wrap"><div class="hero"><h1>' + LOGO(36) + 'Review</h1><div class="tag">Judge the decision, not the outcome.</div></div><div class="stack">' +
+    '<div class="card"><h2>Decision quality by season</h2><div class="strip">' + strip + '</div><div class="legend"><span><i style="background:var(--green)"></i>Close to best</span><span><i style="background:var(--orange)"></i>Costly</span><span><i style="background:var(--red)"></i>Big mistake</span></div><div class="small">' + good + ' of ' + rows.length + ' seasons were close to the best plan the coach could find.</div></div>' +
+    (cards || '<div class="card"><div class="note">No costly decisions found. Try a harder difficulty.</div></div>') +
+    '<div class="card"><h3>How to use this</h3><div class="small">Pick one mistake and replay from that season. Practice runs don\'t count toward your results. The point is to feel the difference, then carry the rule into your next real game.</div></div>' +
+    '<div class="row"><button class="btn ghost block" data-act="backEnd">Back</button><button class="btn primary block" data-act="home">New game</button></div></div></div>';
+}
+
+/* ---------- sheets ---------- */
+function sheetView(s) {
+  if (s.kind === 'busy') return '<div class="sheet-bg"><div class="sheet"><h2>Analysing your game…</h2><div class="small muted">Replaying every season against a stronger plan.</div></div></div>';
+  if (s.kind === 'help') return '<div class="sheet-bg" data-act="close"><div class="sheet" data-stop="1"><h2>How to play</h2><ul class="small">' +
+    '<li><b>Each turn is a 2-month season.</b> Plan your typical day, your videos and your money, then end the season. All four creators move at the same time, in secret.</li>' +
+    '<li><b>Your focus is limited.</b> About 4 h of deep work a day runs at full strength. Gym, free time and study between blocks raise that limit. Hours past it run at 35%.</li>' +
+    '<li><b>Quality beats volume.</b> Retention (quality) and CTR (packaging) decide views. More hours per video means higher quality. Packaging that overpromises costs trust.</li>' +
+    '<li><b>Trends are a bidding war.</b> A trend\'s extra views are split by everyone who enters, so read your rivals. Evergreen videos earn views every season after.</li>' +
+    '<li><b>Stress builds up.</b> At 100 you burn out and work at 25% for a season.</li>' +
+    '<li><b>The channel unlocks as it grows:</b> ads at 1K, sponsors at 5K, staff at 10K, products at 50K, a manager at 100K, a content house at 250K.</li>' +
+    '<li><b>Deals:</b> propose collabs or trend pacts on the Rivals tab. Rivals can break pacts, and so can you, but everyone remembers.</li>' +
+    '<li><b>No luck after you commit.</b> Trends and events are shown before you choose. Once you commit, results are fixed by everyone\'s choices.</li>' +
+    '<li><b>Score</b> = subs × (1 + community/200 + trust/400).</li></ul><button class="btn primary" data-act="close">Got it</button></div></div>';
+  if (s.kind === 'menu') return '<div class="sheet-bg" data-act="close"><div class="sheet" data-stop="1"><h2>Menu</h2><button class="btn block ghost" data-act="help">How to play</button><button class="btn block ghost" data-act="home">Home (game is saved)</button><button class="btn block ghost" data-act="close">Close</button></div></div>';
+  if (s.kind === 'confirm') return '<div class="sheet-bg"><div class="sheet"><h2>' + esc(s.title) + '</h2><div class="small">' + esc(s.text) + '</div><div class="row"><button class="btn ghost block" data-act="close">Cancel</button><button class="btn primary block" data-act="confirmYes">' + esc(s.yes) + '</button></div></div></div>';
+  return '';
+}
+function toast(t) { const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
+
+/* ---------- events ---------- */
+const rnd = x => Math.round(x * 2) / 2;
+document.addEventListener('click', (e) => {
+  const stop = e.target.closest('[data-stop]'); const el = e.target.closest('[data-act]');
+  if (!el) return;
+  if (stop && el.classList.contains('sheet-bg')) return;
+  const act = el.dataset.act, v = el.dataset.v; const d = G.draft; const st = G.st;
+  switch (act) {
+    case 'setup': G.setup[el.dataset.k] = v; G.setup.channelName = (document.getElementById('cname') || {}).value || G.setup.channelName; render(); break;
+    case 'start': {
+      G.setup.channelName = (document.getElementById('cname') || {}).value || '';
+      const go = () => { const o = Object.assign({}, G.setup, { channelName: G.setup.channelName.trim() || 'My Channel' }); if (o.mode === 'subs') o.target = 1000000; if (o.mode === 'money') o.target = 1000000; startGame(o); };
+      if (G.save && !G.save.recorded && G.save.turns.length > 0) { G.sheet = { kind: 'confirm', title: 'Start over?', text: 'Your saved game (season ' + (G.save.turns.length + 1) + ') will be replaced.', yes: 'Start new game', fn: go }; render(); } else go();
+      break; }
+    case 'continue': loadSave(G.save); render(); window.scrollTo(0, 0); break;
+    case 'help': G.sheet = { kind: 'help' }; render(); break;
+    case 'menu': G.sheet = { kind: 'menu' }; render(); break;
+    case 'close': if (e.target.closest('.sheet') && el.classList.contains('sheet-bg')) return; G.sheet = null; render(); break;
+    case 'confirmYes': { const fn = G.sheet && G.sheet.fn; G.sheet = null; if (fn) fn(); render(); break; }
+    case 'home': G.sheet = null; G.screen = 'home'; render(); window.scrollTo(0, 0); break;
+    case 'tab': G.tab = v; render(); window.scrollTo(0, 0); break;
+    case 'step': { const k = el.dataset.k; d.routine[k] = Math.max(0, Math.min(14, rnd(d.routine[k] + parseFloat(el.dataset.d)))); persist(); render(); break; }
+    case 'focus': d.studyFocus = v; persist(); render(); break;
+    case 'ever': d.videos.ever = Math.max(0, Math.min(30, d.videos.ever + parseInt(el.dataset.d, 10))); persist(); render(); break;
+    case 'trend': { const j = +el.dataset.j; d.videos.trends[j] = Math.max(0, Math.min(12, d.videos.trends[j] + parseInt(el.dataset.d, 10))); persist(); render(); break; }
+    case 'sponsor': { const id = +v; d.sponsors = d.sponsors.includes(id) ? d.sponsors.filter(x => x !== id) : d.sponsors.concat([id]); persist(); render(); break; }
+    case 'gear': d.gear = d.gear != null ? null : st.creators[0].gear + 1; persist(); render(); break;
+    case 'product': d.product = !d.product; persist(); render(); break;
+    case 'retire': d.retireProduct = !d.retireProduct; persist(); render(); break;
+    case 'house': { const c = st.creators[0]; if (c.house) d.house = d.house === false ? null : false; else d.house = d.house ? null : true; persist(); render(); break; }
+    case 'dropout': if (d.dropOut) { d.dropOut = false; render(); } else { G.sheet = { kind: 'confirm', title: 'Drop out of uni?', text: 'From this season uni takes 1 h/day instead of 5. Your parents stop the €900/season support. This is permanent.', yes: 'Drop out', fn: () => { d.dropOut = true; persist(); } }; render(); } break;
+    case 'hire': { const id = +v; d.hire = d.hire.includes(id) ? d.hire.filter(x => x !== id) : d.hire.concat([id]); persist(); render(); break; }
+    case 'fire': { const id = +v; d.fire = d.fire.includes(id) ? d.fire.filter(x => x !== id) : d.fire.concat([id]); persist(); render(); break; }
+    case 'pay': d.pay[el.dataset.id] = v; persist(); render(); break;
+    case 'raise': { const id = +v; d.raises = d.raises.includes(id) ? d.raises.filter(x => x !== id) : d.raises.concat([id]); persist(); render(); break; }
+    case 'drama': d._mediate = v === 'm'; d.ignoreDrama = v === 'i'; persist(); render(); break;
+    case 'collab': { const deal = { type: 'collab', to: +v }; const res = T.proposeDeal(st, deal); if (res.accepted) G.save.pending.push({ kind: 'propose', deal }); G.msgs['r' + v] = { ok: res.accepted, text: res.accepted ? st.creators[+v].name + ' said yes. The collab happens this season.' : res.reason }; persist(); render(); break; }
+    case 'pact': { const sel = G.msgs['pact' + v] || { you: 0, they: 1 }; const deal = { type: 'pact', to: +v, youAvoid: sel.you, theyAvoid: sel.they }; const res = T.proposeDeal(st, deal); if (res.accepted) G.save.pending.push({ kind: 'propose', deal }); G.msgs['r' + v] = { ok: res.accepted, text: res.accepted ? 'Pact agreed. You both promised. Whether they keep it, you\'ll see after the season.' : res.reason }; persist(); render(); break; }
+    case 'acceptOffer': { const of = st.news.offers[0].dealOffers.find(x => x.id === v); if (!of) break; const res = T.acceptOffer(st, of); if (res.accepted) G.save.pending.push({ kind: 'accept', offer: of }); G.msgs['offer' + v] = res.accepted ? 'Accepted.' : (res.reason || 'Not possible.'); persist(); render(); break; }
+    case 'ignoreOffer': G.msgs['offer' + v] = 'Ignored.'; render(); break;
+    case 'end': endSeason(); break;
+    case 'review': runReview(); break;
+    case 'backEnd': G.screen = 'end'; render(); break;
+    case 'rewind': {
+      const turn = +v; const base = G.save;
+      const save = { v: 1, opts: Object.assign({}, base.opts, { practice: true }), turns: base.turns.slice(0, turn - 1), pending: [], updated: Date.now() };
+      G.save = save; loadSave(save); G.draft = defaultDraft(G.st); G.draft._turn = G.st.turn; persist(); render(); window.scrollTo(0, 0); toast('Practice run from ' + G.st.news.date);
+      break; }
+  }
+});
+document.addEventListener('change', (e) => {
+  const el = e.target; if (el.dataset.act !== 'pactsel') return; const id = el.dataset.v;
+  G.msgs['pact' + id] = { you: +document.getElementById('py' + id).value, they: +document.getElementById('pt' + id).value };
+});
+
+/* ---------- boot ---------- */
+function start(data) {
+  G.stats = lsGet(LSS) || { games: [] };
+  const hot = data && data.save;
+  G.save = hot || lsGet(LS);
+  if (hot) { try { loadSave(hot); G.tab = data.tab || 'plan'; } catch (e) { G.screen = 'home'; } }
+  render();
+  initDb();
+}
+if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(() => ({ save: G.save, tab: G.tab }));
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start); else start((window.claude && window.claude.hot && window.claude.hot.data) || {});
+})();
+</script>
+
+<script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
+</body>
+</html>
