@@ -1,6 +1,6 @@
 // TubeYou service worker: works offline (bus mode). Version changes on every build.
-const CACHE = 'tubeyou-9c30e9d60f';
-const SHELL = ["./", "index.html", "engine.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
+const CACHE = 'tubeyou-40ed66f691';
+const SHELL = ["./", "index.html", "engine.js?v=40ed66f691", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

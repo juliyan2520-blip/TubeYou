@@ -1,784 +1,464 @@
-/* TubeYou engine: pure game logic, no DOM. Deterministic from (seed, decisions). */
+/* TubeYou v3 engine: monthly video race against four rivals with their own lanes and rules.
+   Pure logic, deterministic from (seed, your actions). */
 (function (root) {
 'use strict';
 
-/* ---------- RNG ---------- */
+/* ---------- utils ---------- */
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function hash() { let h = 2166136261; for (let i = 0; i < arguments.length; i++) { h ^= (arguments[i] | 0); h = Math.imul(h, 16777619); h ^= h >>> 13; } return h >>> 0; }
 function rngFor() { return mulberry32(hash.apply(null, arguments)); }
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 const clone = o => JSON.parse(JSON.stringify(o));
-const round = Math.round;
+const pick = (r, a) => a[Math.floor(r() * a.length)];
+function fmt(n) { n = Math.round(n); const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M'; if (a >= 1e4) return Math.round(n / 1e3) + 'K'; if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(n); }
 
-/* ---------- Constants ---------- */
-const DAYS = 60;
-const WAKING = 16;
-const START = { year: 2026, month: 10 }; // Nov 2026 (0-based month)
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/* ---------- packaging ---------- */
+// thumbnail styles and title angles: base pull, how much they promise (clickbait), unlock level
+const STYLES = {
+  face:   { name: 'Face + text',   base: 1.0,  promise: 0.45, lvl: 1 },
+  closeup:{ name: 'Close-up',      base: 0.92, promise: 0.35, lvl: 1 },
+  before: { name: 'Before / after',base: 1.12, promise: 0.6,  lvl: 2 },
+  shock:  { name: 'Shock + arrow', base: 1.3,  promise: 0.85, lvl: 2 },
+  number: { name: 'Big number',    base: 1.05, promise: 0.5,  lvl: 3 },
+  minimal:{ name: 'Minimal',       base: 0.95, promise: 0.25, lvl: 4 },
+};
+const ANGLES = {
+  howto:   { name: 'How to',     base: 0.95, promise: 0.3,  lvl: 1 },
+  tried:   { name: 'I tried it', base: 1.1,  promise: 0.5,  lvl: 1 },
+  question:{ name: 'Question',   base: 1.0,  promise: 0.4,  lvl: 2 },
+  bold:    { name: 'Bold claim', base: 1.25, promise: 0.85, lvl: 2 },
+  list:    { name: 'Ranking',    base: 1.05, promise: 0.45, lvl: 3 },
+  story:   { name: 'My story',   base: 1.08, promise: 0.35, lvl: 4 },
+};
+// which packaging fits which kind of lane (shown to you from Research level 3)
+const FIT = {
+  transform: { before: 1.25, number: 1.1, tried: 1.2, story: 1.1, minimal: 0.85 },
+  science:   { minimal: 1.2, closeup: 1.15, question: 1.2, howto: 1.1, shock: 0.8, bold: 0.85 },
+  trend:     { shock: 1.2, face: 1.1, bold: 1.15, question: 1.1, howto: 0.85 },
+  howto:     { closeup: 1.15, number: 1.15, howto: 1.25, list: 1.15, story: 0.85 },
+  lifestyle: { face: 1.2, story: 1.25, tried: 1.1, number: 0.9 },
+};
+const TITLE = {
+  howto: n => n + ': the complete beginner guide', tried: n => 'I tried ' + n + ' for 30 days', question: n => 'Does ' + n + ' actually work?',
+  bold: n => 'Stop doing ' + n + ' (here\'s why)', list: n => 'Ranking every ' + n + ' tip', story: n => 'How ' + n + ' changed everything for me',
+};
+const THUMBTXT = { howto: 'GUIDE', tried: '30 DAYS', question: 'WORKS?', bold: 'STOP', list: 'TOP 5', story: 'MY STORY' };
+const SKILLS = {
+  script: { name: 'Scripting', icon: '✍️', desc: 'Retention per hour of scripting.' },
+  camera: { name: 'On-camera', icon: '🎥', desc: 'Retention per hour of filming. Level 5+: series can\'t be copied.' },
+  edit:   { name: 'Editing', icon: '✂️', desc: 'Retention per hour of editing.' },
+  thumb:  { name: 'Thumbnails', icon: '🖼️', desc: 'Click-through rate. Unlocks thumbnail styles.' },
+  title:  { name: 'Titles', icon: '🔤', desc: 'Click-through rate. Unlocks title angles.' },
+  research:{ name: 'Research', icon: '🔍', desc: 'Information. 2: trend timing. 3: packaging fit. 4: overused styles. 5: beat search authority. 6: see rivals\' plans.' },
+  biz:    { name: 'Business', icon: '💼', desc: 'Sponsor pay. 2: hire staff. 4: launch merch.' },
+};
+const LVL = xp => clamp(Math.floor(Math.sqrt(Math.max(0, xp) / 8)) + 1, 1, 10);
+const XPFOR = l => 8 * (l - 1) * (l - 1);
 
+/* ---------- niches: lanes, topics and four rival archetypes ---------- */
+// lane: [name, kind, owner archetype or null, topics [name, demand 1-3, evergreen]]
 const NICHES = {
-  glow: { name: 'Glow-up', desc: 'Skincare, physique, grooming. Evergreen search is strong and trust matters.', rpm: 4.5, eg: 0.32, trend: 1.0, conv: 1.05, disc: 1.0, cap: 8e6, sponsor: 1.0, trustSens: 1.2, comm: 1.1, preview: 1,
-    rivals: ['Theo Glows', 'Marco Maxxing', 'Jasper Lifts', 'Clearskin Cal'],
-    trends: ['Mewing debunk','Skincare under €20','90-day gym transformation','Looksmax tier lists','Debloat morning routine','Haircut for face shape','Posture fix','Fragrance for school','Celebrity glow-up breakdown','Jawline gum test','Sleep for skin','Teeth whitening myths','Style basics for guys','Body-fat % visual guide','Creatine myths'] },
-  gaming: { name: 'Gaming', desc: 'Huge, fast trends. Low ad pay, weak evergreen.', rpm: 2.2, eg: 0.12, trend: 1.9, conv: 0.85, disc: 1.15, cap: 2e7, sponsor: 0.8, trustSens: 0.8, comm: 1.2, preview: 1,
-    rivals: ['PixelPete', 'Rushwick', 'LagLord', 'Cozy Kira'],
-    trends: ['Battle royale new season','Speedrun record','Indie hidden gem','Patch notes drama','Retro remake','Hardest boss ranking','Modded chaos','Esports upset','Open-world launch','Gacha banner','Hardcore 100 days','Console war','Big game leak','Cozy game wave','Horror demo'] },
-  tech: { name: 'Tech', desc: 'Launch calendar is known ahead (you see all next-season trends). High sponsor pay.', rpm: 7, eg: 0.22, trend: 1.3, conv: 0.95, disc: 1.0, cap: 1.2e7, sponsor: 1.6, trustSens: 1.0, comm: 1.0, preview: 3,
-    rivals: ['ByteBench', 'Unboxed Ola', 'Specsy', 'Dr. Teardown'],
-    trends: ['New phone launch','AI tool wave','Budget laptop test','Foldables return','Smart glasses','GPU price crash','Desk setup tour','Battery life test','Earbuds shootout','Privacy scandal','Home lab','Keyboard craze','Console teardown','Camera phone shootout','EV tech'] },
-  finance: { name: 'Finance', desc: 'Highest ad pay, slow discovery. Trust is everything.', rpm: 13, eg: 0.28, trend: 0.9, conv: 0.85, disc: 0.75, cap: 5e6, sponsor: 1.8, trustSens: 1.8, comm: 1.0, preview: 1,
-    rivals: ['Compound Kai', 'Frugal Freya', 'Index Ivan', 'Bull Bram'],
-    trends: ['Market crash panic','ETF beginner wave','Crypto pump','Rate cut news','Side hustle hype','Housing crisis','Budget challenge','Earnings season','Index vs stock picking','Gold rally','Student debt','FIRE stories','Inflation report','IPO frenzy','Tax season'] },
-  commentary: { name: 'Commentary', desc: 'Trends are everything, evergreen is near zero. Trust swings fast.', rpm: 3, eg: 0.05, trend: 2.4, conv: 0.9, disc: 1.1, cap: 1.5e7, sponsor: 0.7, trustSens: 0.7, comm: 1.0, preview: 1,
-    rivals: ['HotTake Hana', 'Rantman', 'Spilled Tea Sam', 'Calm Critic'],
-    trends: ['Creator apology video','Reality show finale','Streamer ban','Brand fail','Influencer scam','Award show snub','Cancelled tour','Podcast feud','Viral court case','Trend backlash','Celebrity breakup','Movie flop','Leaked DMs','Charity stunt','Platform policy outrage'] },
-  education: { name: 'Education', desc: 'Strongest evergreen and community, slow start, small trends.', rpm: 5, eg: 0.45, trend: 0.7, conv: 1.1, disc: 0.8, cap: 1e7, sponsor: 1.0, trustSens: 1.0, comm: 1.3, preview: 1,
-    rivals: ['Explainer Eli', 'Curious Cleo', 'Prof Pixel', 'Map Mo'],
-    trends: ['Space mission','History anniversary','Viral math puzzle','Exam season study tips','Science myth','Nobel prize','Language learning','Climate report','Archaeology find','Economics explained','Psychology study','Brain hack myth','Physics breakthrough','Ancient tech','Geography quiz'] },
+  glow: { name: 'Glow-up', rpm: 4.5, lanes: [
+    ['Skincare', 'science', 'authority', [['retinol', 3, 1], ['sunscreen', 2, 1], ['acne scars', 3, 1], ['dark circles', 2, 1], ['niacinamide', 2, 1], ['budget skincare', 3, 1]]],
+    ['Looksmaxxing', 'trend', 'sniper', [['mewing', 3, 0], ['jawline gum', 2, 0], ['bone smashing', 2, 0], ['canthal tilt', 2, 0], ['looksmax tier lists', 3, 0], ['hunter eyes', 2, 0]]],
+    ['Gym', 'transform', 'community', [['push pull legs', 3, 1], ['cutting', 2, 1], ['home workouts', 2, 1], ['creatine', 3, 1], ['posture', 2, 1], ['calisthenics', 2, 1]]],
+    ['Hair & style', 'lifestyle', null, [['haircuts for your face', 3, 1], ['curly hair', 2, 1], ['basic wardrobe', 2, 1], ['fragrance', 2, 1], ['beard growth', 2, 1], ['eyebrows', 1, 1]]],
+    ['Debloat & diet', 'howto', null, [['debloating', 3, 1], ['protein', 2, 1], ['sugar', 2, 1], ['water retention', 2, 1], ['sleep for your face', 2, 1], ['caffeine', 1, 1]]],
+  ], rivals: { authority: ['DermTheo', 'Dermatology-backed skincare. Slow, precise, trusted.'], sniper: ['MaxxMarco', 'Every looksmax trend, first, loud, clickbait.'], community: ['JasperLifts', 'Gym transformations with a loyal army of fans.'], copycat: ['CalClones', 'Remakes whatever worked last month, with more budget.'] } },
+  gaming: { name: 'Gaming', rpm: 2.2, lanes: [
+    ['Guides', 'howto', 'authority', [['boss guides', 3, 1], ['best builds', 3, 1], ['hidden secrets', 2, 1], ['beginner tips', 2, 1], ['speedrun routes', 1, 1], ['100% guides', 2, 1]]],
+    ['Patch news', 'trend', 'sniper', [['new season', 3, 0], ['patch notes', 3, 0], ['leaks', 2, 0], ['nerfs', 2, 0], ['new map', 2, 0], ['event rewards', 2, 0]]],
+    ['Challenges', 'transform', 'community', [['100 days', 3, 1], ['hardcore runs', 2, 1], ['no-hit runs', 2, 1], ['nuzlocke', 2, 1], ['permadeath', 2, 1], ['one-life runs', 2, 1]]],
+    ['Indie gems', 'lifestyle', null, [['hidden indie games', 2, 1], ['cozy games', 2, 1], ['roguelikes', 2, 1], ['horror demos', 2, 1], ['pixel art games', 1, 1], ['retro remakes', 2, 1]]],
+    ['Setups', 'science', null, [['budget PC', 3, 1], ['controllers', 2, 1], ['monitors', 2, 1], ['headsets', 2, 1], ['streaming setup', 2, 1], ['handhelds', 2, 1]]],
+  ], rivals: { authority: ['GuideGuru', 'Definitive guides that rank for years.'], sniper: ['PatchRush', 'First on every patch and leak.'], community: ['CozyKira', 'Community challenges with a loyal chat.'], copycat: ['Remakr', 'Copies whatever blew up last month.'] } },
+  tech: { name: 'Tech', rpm: 7, lanes: [
+    ['Deep reviews', 'science', 'authority', [['phone cameras', 3, 1], ['laptop battery', 2, 1], ['earbuds', 2, 1], ['monitors', 2, 1], ['chargers', 1, 1], ['smartwatches', 2, 1]]],
+    ['Launch news', 'trend', 'sniper', [['new phone launch', 3, 0], ['AI tools', 3, 0], ['leaked specs', 2, 0], ['price drops', 2, 0], ['foldables', 2, 0], ['smart glasses', 2, 0]]],
+    ['Setups & builds', 'transform', 'community', [['desk setup', 3, 1], ['PC build', 3, 1], ['home office', 2, 1], ['cable management', 2, 1], ['budget setup', 2, 1], ['minimal setup', 2, 1]]],
+    ['Student tech', 'howto', null, [['student laptops', 3, 1], ['study apps', 2, 1], ['tablets for notes', 2, 1], ['budget phones', 2, 1], ['productivity', 2, 1], ['note-taking', 1, 1]]],
+    ['Tech life', 'lifestyle', null, [['what\'s on my phone', 2, 1], ['tech I regret', 2, 1], ['digital minimalism', 2, 1], ['EDC', 1, 1], ['one month without a phone', 2, 1], ['smart home', 2, 1]]],
+  ], rivals: { authority: ['LabBench', 'Lab-tested reviews. Everyone cites them.'], sniper: ['LeakLord', 'Covers every launch within hours.'], community: ['SetupSam', 'Setup tours voted on by his community.'], copycat: ['Unboxd', 'Copies the videos that work, with a bigger budget.'] } },
+  finance: { name: 'Finance', rpm: 13, lanes: [
+    ['Investing', 'science', 'authority', [['index funds', 3, 1], ['ETFs', 3, 1], ['dividends', 2, 1], ['compound interest', 2, 1], ['bonds', 1, 1], ['stock picking', 2, 1]]],
+    ['Hype', 'trend', 'sniper', [['crypto pumps', 3, 0], ['meme stocks', 3, 0], ['market crash', 2, 0], ['AI stocks', 2, 0], ['IPOs', 2, 0], ['rate cuts', 2, 0]]],
+    ['Money challenges', 'transform', 'community', [['no-spend month', 3, 1], ['saving €10K', 3, 1], ['budget challenge', 2, 1], ['side hustle for 30 days', 2, 1], ['debt payoff', 2, 1], ['frugal week', 2, 1]]],
+    ['Student money', 'howto', null, [['student budget', 3, 1], ['first job', 2, 1], ['student loans', 2, 1], ['taxes for students', 2, 1], ['saving apps', 1, 1], ['first investment', 2, 1]]],
+    ['Money stories', 'lifestyle', null, [['how much I earn', 3, 1], ['what I spend in a month', 2, 1], ['money mistakes', 2, 1], ['living abroad costs', 2, 1], ['minimalism', 1, 1], ['FIRE', 2, 1]]],
+  ], rivals: { authority: ['IndexIvan', 'Calm, evidence-based investing. Trusted for years.'], sniper: ['MoonBram', 'Every pump and crash, live, loud.'], community: ['FrugalFreya', 'Monthly money challenges with her community.'], copycat: ['CopyCash', 'Copies whatever blew up last month.'] } },
+  commentary: { name: 'Commentary', rpm: 3, lanes: [
+    ['Deep dives', 'science', 'authority', [['the downfall of a creator', 3, 1], ['internet mysteries', 2, 1], ['scam investigations', 3, 1], ['lost media', 2, 1], ['platform history', 2, 1], ['cult brands', 2, 1]]],
+    ['Drama', 'trend', 'sniper', [['creator feud', 3, 0], ['apology video', 3, 0], ['exposed thread', 2, 0], ['cancelled tour', 2, 0], ['leaked DMs', 2, 0], ['brand fail', 2, 0]]],
+    ['Reactions', 'transform', 'community', [['reacting to cringe', 3, 1], ['ranking viewer submissions', 2, 1], ['rating subscribers\' setups', 2, 1], ['react to my old videos', 2, 1], ['tier lists', 2, 1], ['live reacts', 2, 1]]],
+    ['Culture', 'lifestyle', null, [['why everyone is lonely', 2, 1], ['dating apps', 3, 1], ['Gen Z work culture', 2, 1], ['nostalgia', 2, 1], ['internet slang', 1, 1], ['social media detox', 2, 1]]],
+    ['Explainers', 'howto', null, [['how the algorithm works', 3, 1], ['why ads are everywhere', 2, 1], ['how influencers earn', 2, 1], ['how memes spread', 1, 1], ['how fame works', 2, 1], ['how scams work', 2, 1]]],
+  ], rivals: { authority: ['DeepDiveDan', 'Hour-long investigations people binge.'], sniper: ['TeaSam', 'First on every drama, every time.'], community: ['ReactRae', 'Reacts with her community live.'], copycat: ['Echo', 'Copies whatever blew up last month.'] } },
+  education: { name: 'Education', rpm: 5, lanes: [
+    ['Science', 'science', 'authority', [['black holes', 3, 1], ['quantum physics', 2, 1], ['evolution', 2, 1], ['the brain', 3, 1], ['climate', 2, 1], ['chemistry myths', 2, 1]]],
+    ['Viral facts', 'trend', 'sniper', [['viral math puzzle', 3, 0], ['space news', 3, 0], ['new discovery', 2, 0], ['myth going viral', 2, 0], ['Nobel prize', 2, 0], ['eclipse', 2, 0]]],
+    ['Study challenges', 'transform', 'community', [['studying 12 hours', 3, 1], ['learning a language in 30 days', 3, 1], ['memory training', 2, 1], ['exam week', 2, 1], ['reading 50 books', 2, 1], ['learning to code', 2, 1]]],
+    ['Study tips', 'howto', null, [['active recall', 3, 1], ['note-taking', 2, 1], ['focus', 3, 1], ['exam prep', 2, 1], ['speed reading', 2, 1], ['spaced repetition', 2, 1]]],
+    ['History', 'lifestyle', null, [['ancient empires', 3, 1], ['forgotten wars', 2, 1], ['history of money', 2, 1], ['lost cities', 2, 1], ['inventions', 2, 1], ['famous mistakes', 2, 1]]],
+  ], rivals: { authority: ['ProfPixel', 'Animated explainers that rank forever.'], sniper: ['FactFlash', 'First on every viral fact.'], community: ['StudyWithMo', 'Study-with-me challenges, huge community.'], copycat: ['Recap', 'Copies whatever blew up last month.'] } },
 };
-
-const PERSONAS = {
-  grinder:   { label: 'The Grinder',   blurb: 'Uploads constantly, never misses a week.', routine: { deep: 5, pack: 1, comm: 1, study: 0.5, gym: 1 }, videos: 10, focus: 'craft', honesty: 0.75, trendBias: 0.0, staffPref: ['editor','thumbnail','community','writer','manager'], obl: 1 },
-  gambler:   { label: 'The Gambler',   blurb: 'Goes all-in on the biggest trend.', routine: { deep: 4.5, pack: 2, comm: 0.5, study: 0.5, gym: 0.5 }, videos: 7, focus: 'pack', honesty: 0.3, trendBias: 0.6, staffPref: ['thumbnail','editor','manager','writer','community'], obl: 2 },
-  copycat:   { label: 'The Copycat',   blurb: 'Watches the leader and copies what worked.', routine: { deep: 4.5, pack: 1.5, comm: 1, study: 0.5, gym: 1 }, videos: 7, focus: 'pack', honesty: 0.5, trendBias: 0.2, staffPref: ['editor','thumbnail','writer','community','manager'], obl: 2 },
-  craftsman: { label: 'The Craftsman', blurb: 'Few videos, very high quality, mostly evergreen.', routine: { deep: 4, pack: 1, comm: 1, study: 1.5, gym: 1.5 }, videos: 4, focus: 'craft', honesty: 0.9, trendBias: -0.3, staffPref: ['writer','editor','community','thumbnail','manager'], obl: 2 },
+const ARCH = {
+  authority: { label: 'Authority', edge: 'Ranks in search for months. Topics in his lane get −30% reach for you until Research 5. Clickbait in his lane gets you debunked.', moves: ['reply', 'collab'] },
+  sniper:    { label: 'Trend sniper', edge: 'Jumps on every trend with clickbait. Beat him to a trend in its first month for +50% views.', moves: ['race', 'callout'] },
+  community: { label: 'Community', edge: 'Loyal fans and a new challenge every 3 months. Join it to borrow his audience.', moves: ['challenge', 'collab'] },
+  copycat:   { label: 'Copycat', edge: 'Remakes the best video of last month, often yours, and steals part of its long tail. Series videos (On-camera 5+) can\'t be copied.', moves: ['expose'] },
 };
-
-const SIZE_LABEL = { 1: 'Warm', 2: 'Hot', 4: 'Huge' };
-const STAFF_ROLES = {
-  editor:    { label: 'Editor',            unlock: 10000,  desc: 'Adds editing hours to every video.' },
-  thumbnail: { label: 'Thumbnail artist',  unlock: 10000,  desc: 'Raises packaging (CTR).' },
-  writer:    { label: 'Writer',            unlock: 10000,  desc: 'Raises video quality (retention).' },
-  community: { label: 'Community manager', unlock: 10000,  desc: 'Grows community without your hours.' },
-  manager:   { label: 'Manager',           unlock: 100000, desc: 'More and better sponsor deals, better products.' },
-};
-const SALARY = [0, 700, 1500, 2800, 4800, 7800]; // per season by stars
-const TRAITS = {
-  fast:         { label: 'Fast',         desc: '+25% output' },
-  perfectionist:{ label: 'Perfectionist',desc: '+quality, -15% output' },
-  ambitious:    { label: 'Ambitious',    desc: '+20% output, loses morale unless paid well' },
-  loyal:        { label: 'Loyal',        desc: 'Morale never drops below 45' },
-  hothead:      { label: 'Hothead',      desc: 'Lowers teammates\' morale; drama in a shared house' },
-  cheap:        { label: 'Bargain',      desc: '-30% salary' },
-  learner:      { label: 'Fast learner', desc: 'Gains a star every 4 seasons' },
-  nightowl:     { label: 'Night owl',    desc: '+20% output in the content house' },
-};
-const GEAR = [
-  { name: 'Phone', cost: 0, q: 1.0, pack: 0 },
-  { name: 'Camera + mic', cost: 700, q: 1.06, pack: 0 },
-  { name: 'Pro kit (lens, lights)', cost: 2500, q: 1.12, pack: 2 },
-  { name: 'Studio', cost: 9000, q: 1.2, pack: 5 },
+const PALETTE = { you: ['#0571D3', '#FF7A1A', '#FFFEFB'], authority: ['#0F6E56', '#E1F5EE', '#FFFFFF'], sniper: ['#E0201B', '#FFD21F', '#111111'], community: ['#534AB7', '#EEEDFE', '#26215C'], copycat: ['#5F5E5A', '#D3D1C7', '#2C2C2A'] };
+const DIFF = { easy: { think: 0, start: 0.35 }, normal: { think: 1, start: 0.7 }, hard: { think: 2, start: 1 }, brutal: { think: 3, start: 1.5 } };
+const START_SUBS = { authority: 9000, sniper: 5000, community: 7000, copycat: 1500 };
+const MILESTONES = [
+  { subs: 1000,    title: 'Monetized',          a: { k: 'cash', v: 500, label: '+€500 now' },          b: { k: 'xp', v: 40, label: '+40 XP to every skill' } },
+  { subs: 10000,   title: '10K subscribers',    a: { k: 'hours', v: 10, label: '+10 hours every month' }, b: { k: 'trust', v: 10, label: '+10 trust' } },
+  { subs: 100000,  title: 'Silver Play Button', a: { k: 'hours', v: 15, label: '+15 hours every month' }, b: { k: 'cash', v: 8000, label: '+€8,000 now' } },
+  { subs: 1000000, title: 'Gold Play Button',   a: { k: 'community', v: 20, label: '+20 community' },   b: { k: 'cash', v: 60000, label: '+€60,000 now' } },
 ];
-const UNLOCKS = [
-  { subs: 1000, key: 'ads', label: 'Ad revenue' },
-  { subs: 5000, key: 'sponsors', label: 'Sponsors' },
-  { subs: 10000, key: 'staff', label: 'Hire staff' },
-  { subs: 50000, key: 'product', label: 'Own product' },
-  { subs: 100000, key: 'manager', label: 'Manager' },
-  { subs: 250000, key: 'house', label: 'Content house' },
-];
-const PRODUCT_COST = 6000, PRODUCT_HOURS = 40, HOUSE_RENT = 9000;
-const DIFFICULTY = { easy: { samples: 4, think: 0 }, normal: { samples: 12, think: 1 }, hard: { samples: 30, think: 2 }, brutal: { samples: 60, think: 3 } };
+const ROLES = { editor: { name: 'Editor', icon: '✂️', desc: 'Adds edit hours to every video.' }, designer: { name: 'Thumbnail designer', icon: '🖼️', desc: 'Your thumbnails use their level if higher.' }, writer: { name: 'Scriptwriter', icon: '✍️', desc: 'Adds script hours to every video.' }, manager: { name: 'Manager', icon: '📋', desc: '+1 sponsor offer, +25% sponsor pay.' } };
+const SPONSORS = { good: ['Nordvault VPN', 'Skillforge', 'Brightleaf meals', 'Studybuddy', 'Corefit protein', 'Lumen skincare'], meh: ['MegaMobile game', 'Glowz gummies', 'QuickTrade app'], sketchy: ['CryptoMoon', 'JawMax pills', 'Get-rich course'] };
+const FIRST = ['Lena', 'Milo', 'Ana', 'Ivo', 'Sara', 'Noah', 'Eva', 'Luka', 'Mia', 'Finn', 'Nina', 'Teo', 'Iris', 'Dani', 'Yara', 'Ben', 'Zoe', 'Arjun', 'Maja', 'Leo'];
 
-/* ---------- Calendar & life ---------- */
-function dateOf(turn) { const m = START.month + 2 * (turn - 1); const y = START.year + Math.floor(m / 12); const mm = m % 12; return { y, m: mm, label: MONTHS[mm] + '–' + MONTHS[(mm + 1) % 12] + ' ' + y }; }
-
+/* ---------- calendar & life ---------- */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function dateOf(turn) { const m = 10 + (turn - 1); const y = 2026 + Math.floor(m / 12); const mm = m % 12; return { y, m: mm, label: MONTHS[mm] + ' ' + y, short: MONTHS[mm].slice(0, 3) + ' ' + String(y).slice(2) }; }
 function lifeStage(c, turn) {
+  const d = dateOf(turn); const bonus = c.bonusHours || 0;
   if (c.path === 'student') {
-    const d = dateOf(turn);
-    if (turn <= 4) return { label: turn === 4 ? 'Final exams' : '12th grade', obl: turn === 4 ? 8.5 : 6, living: 0, support: 0 };
-    if (turn === 5) return { label: 'Summer before uni', obl: 1.5, living: 0, support: 0 };
-    if (c.droppedOut) return { label: 'Full-time (dropped out)', obl: 1, living: 2100, support: 0 };
-    if (turn === 6) return { label: 'Moving to the Netherlands', obl: 7, living: 2100, support: 900 };
-    if (turn >= 29) return { label: 'Graduated', obl: 1, living: 2100, support: 0 };
-    const exam = d.m === 0 || d.m === 4; // Jan-Feb, May-Jun exam blocks
-    return { label: exam ? 'Uni exams' : 'University (BUas)', obl: exam ? 6.5 : 5, living: 2100, support: 900 };
+    if (turn <= 7) return (d.m === 4 || d.m === 5) ? { label: 'Final exams', hours: 25 + bonus, living: 0 } : { label: '12th grade', hours: 45 + bonus, living: 0 };
+    if (turn <= 10) return { label: 'Summer break', hours: 110 + bonus, living: 0 };
+    if (c.droppedOut) return { label: 'Full-time creator', hours: 100 + bonus, living: 1000 };
+    if (turn === 11) return { label: 'Moving to the Netherlands', hours: 30 + bonus, living: 400 };
+    if (turn >= 57) return { label: 'Graduated', hours: 100 + bonus, living: 1000 };
+    const exam = d.m === 0 || d.m === 5 || d.m === 10;
+    return exam ? { label: 'Uni exams', hours: 35 + bonus, living: 400 } : { label: 'University (BUas)', hours: 65 + bonus, living: 400 };
   }
-  return { label: 'Full-time creator', obl: 1, living: 1900, support: 0 };
+  return { label: 'Full-time creator', hours: 95 + bonus, living: 950 };
 }
 
-/* ---------- Setup ---------- */
+/* ---------- setup ---------- */
 function newGame(opts) {
-  const seed = opts.seed >>> 0 || (Math.random() * 4294967295) >>> 0;
-  const niche = NICHES[opts.niche] ? opts.niche : 'glow';
-  const r = rngFor(seed, 1);
-  const pk = Object.keys(PERSONAS); for (let i = pk.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pk[i], pk[j]] = [pk[j], pk[i]]; }
-  const names = NICHES[niche].rivals.slice(); for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
-  const human = makeCreator(0, opts.channelName || 'My Channel', true, 'human');
-  human.path = opts.path || 'student';
-  if (human.path === 'fulltime') human.money = 6000;
-  const creators = [human];
-  for (let i = 0; i < 3; i++) { const ai = makeCreator(i + 1, names[i], false, pk[i]); ai.path = human.path; ai.money = human.money; creators.push(ai); }
-  const st = {
-    v: 1, seed, niche, mode: opts.mode || 'turns', target: opts.target || 0, maxTurns: opts.mode === 'turns' ? (opts.turns || 30) : 60,
-    difficulty: DIFFICULTY[opts.difficulty] ? opts.difficulty : 'normal', turn: 1, creators, over: false, winner: null,
-    news: null, log: [], deals: [], dealSeq: 1, history: [], unlocked: {}, practice: !!opts.practice,
-  };
-  snapshotHistory(st);
-  st.news = generateNews(st);
+  const seed = (opts.seed >>> 0) || ((Math.random() * 4294967295) >>> 0);
+  const niche = NICHES[opts.niche] ? opts.niche : 'glow'; const N = NICHES[niche]; const diff = DIFF[opts.difficulty] ? opts.difficulty : 'normal';
+  const path = opts.path === 'fulltime' ? 'fulltime' : 'student';
+  const mk = (id, name, arch, lane) => ({ id, name, human: id === 0, arch, lane, palette: PALETTE[id === 0 ? 'you' : arch], subs: 100, peak: 100, money: path === 'fulltime' ? 4000 : 300, trust: 55, community: 10, stress: 15, burnout: 0,
+    xp: { script: 0, camera: 0, edit: 0, thumb: 0, title: 0, research: 0, biz: 0 }, laneCount: [0, 0, 0, 0, 0], staff: [], staffSeq: 1, relation: {}, path, droppedOut: false, bonusHours: 0, milestones: [], pending: null, trending: 0, copiedBy: 0, product: null, flags: {} });
+  const you = mk(0, opts.channelName || 'My Channel', null, -1);
+  const archs = ['authority', 'sniper', 'community', 'copycat'];
+  const creators = [you].concat(archs.map((a, i) => { let lane = N.lanes.findIndex(l => l[2] === a); if (lane < 0) lane = N.lanes.findIndex(l => !l[2]); const c = mk(i + 1, N.rivals[a][0], a, lane); c.subs = c.peak = Math.round(START_SUBS[a] * DIFF[diff].start); c.trust = a === 'authority' ? 75 : a === 'sniper' ? 40 : 55; c.community = a === 'community' ? 45 : 20; const lv = { authority: { script: 3, research: 5, edit: 3 }, sniper: { thumb: 4, title: 4, research: 2, script: 3, edit: 3 }, community: { camera: 4, edit: 3 }, copycat: { edit: 4, thumb: 3 } }[a]; Object.keys(lv).forEach(k => c.xp[k] = XPFOR(lv[k])); if (lane >= 0) c.laneCount[lane] = 6; return c; }));
+  const st = { v: 3, seed, niche, mode: opts.mode || 'career', maxTurns: opts.mode === 'sprint' ? 12 : 60, difficulty: diff, turn: 1, creators, videos: [], vseq: 1, trends: [], styleUse: {}, history: [], insights: [], over: false, practice: !!opts.practice, challenge: null, events: [] };
+  creators.forEach(c => c.start = c.subs);
+  // rivals' back catalogue so their channels aren't empty
+  creators.slice(1).forEach(c => { for (let k = 0; k < 6; k++) { const r = rngFor(seed, 3, c.id, k); const lane = r() < 0.75 ? c.lane : Math.floor(r() * 5); const ti = Math.floor(r() * 6); const spec = rivalSpec(st, c, { lane, i: ti }, r); const v = makeVideo(st, c, spec, -k); v.views = v.monthViews = Math.round(c.subs * (0.3 + r() * 0.8)); v.month = 0; v.q = 0.55; v.ctr = 0.05; st.videos.push(v); } });
+  startTurn(st);
   return st;
 }
 
-function makeCreator(id, name, human, persona) {
-  const p = PERSONAS[persona];
-  const c = { id, name, human, persona, subs: 100, community: 10, trust: 50, money: human ? 300 : 1500, craft: 20, pack: 20, biz: 10, stress: 20, burnout: 0,
-    library: 0, gear: 0, staff: [], product: null, house: false, droppedOut: false, relation: {}, deals: { kept: 0, broken: 0 }, lastAlloc: null, staffSeq: 1, debtTurns: 0,
-    lastDecision: null, obl: p ? p.obl : 1, peakSubs: 100 };
-  if (persona === 'craftsman') { c.craft = 30; c.pack = 14; }
-  if (persona === 'gambler') { c.pack = 30; c.craft = 14; }
-  if (persona === 'grinder') { c.craft = 22; c.pack = 18; }
-  if (persona === 'copycat') { c.craft = 20; c.pack = 22; }
-  return c;
-}
-
-/* ---------- News (input randomness, revealed before decisions) ---------- */
-function trendsFor(st, turn) {
-  const N = NICHES[st.niche]; const r = rngFor(st.seed, 7, turn);
-  const used = new Set(); const out = [];
-  const names = N.trends;
-  for (let i = 0; i < 3; i++) {
-    let idx; do { idx = Math.floor(r() * names.length); } while (used.has(idx)); used.add(idx);
-    const x = r(); const size = x < 0.45 ? 1 : x < 0.85 ? 2 : 4;
-    out.push({ id: i, name: names[idx], size });
-  }
-  return out;
-}
-
-function avgSubs(st) { return st.creators.reduce((a, c) => a + c.subs, 0) / st.creators.length; }
-
-function generateNews(st) {
-  const t = st.turn; const r = rngFor(st.seed, 11, t); const N = NICHES[st.niche];
-  const trends = trendsFor(st, t);
-  const pool = (35000 + 0.6 * avgSubs(st)) * N.trend;
-  trends.forEach(tr => tr.pool = round(pool * tr.size));
-  const nextTr = trendsFor(st, t + 1).slice(0, N.preview);
-  const d = dateOf(t);
-  const events = [];
-  // seasonal ad market (real: Q4 high, January dip)
-  let rpmMult = 1;
-  if (d.m === 10) { rpmMult = 1.4; events.push({ key: 'q4', title: 'Q4 ad boom', text: 'Advertisers spend before the holidays. Ad pay is 40% higher this season.' }); }
-  else if (d.m === 0) { rpmMult = 0.75; events.push({ key: 'jan', title: 'January ad dip', text: 'Ad budgets reset. Ad pay is 25% lower this season.' }); }
-  else if (d.m === 6) { rpmMult = 0.9; events.push({ key: 'summer', title: 'Summer slump', text: 'Ad pay is 10% lower this season, but viewers have more free time (+10% discovery).' }); }
-  const x = r();
-  let mods = { rpm: rpmMult, disc: d.m === 6 ? 1.1 : 1, qWeight: 1, cWeight: 1, clickbait: 1, personalHours: 0 };
-  if (x < 0.18) { mods.qWeight = 1.25; events.push({ key: 'watch', title: 'Algorithm favours watch time', text: 'Quality (retention) counts 25% more toward views this season.' }); }
-  else if (x < 0.32) { mods.cWeight = 1.25; mods.clickbait = 0.6; events.push({ key: 'ctr', title: 'Packaging season', text: 'Thumbnails and titles (CTR) count 25% more this season, and clickbait is punished less.' }); }
-  else if (x < 0.44) { mods.disc *= 1.3; events.push({ key: 'shout', title: 'Your niche goes mainstream', text: 'A huge creator talked about your niche. +30% discovery for everyone.' }); }
-  else if (x < 0.54) { mods.clickbait = 2; events.push({ key: 'crack', title: 'Clickbait crackdown', text: 'If your packaging overpromises compared with your quality, you lose twice the trust.' }); }
-  const y = r();
-  if (y < 0.12) { mods.personalHours = 1; events.push({ key: 'family', title: 'Family stuff', text: 'Family events take about 1 hour a day of your time this season.' }); }
-  else if (y < 0.2) { mods.personalHours = 0.5; events.push({ key: 'sick', title: 'You got sick', text: 'A flu takes about 0.5 hours a day of your time this season.' }); }
-  if (r() < 0.25) { const tr = trends[Math.floor(r() * 3)]; tr.size = 4; tr.pool = round(pool * 4); events.push({ key: 'viral', title: 'Viral moment', text: '"' + tr.name + '" just exploded. It is a Huge trend this season.' }); }
-
-  // per-creator offers: sponsors, candidates, deals (human gets the visible ones, AIs get their own)
-  const offers = {};
-  st.creators.forEach(c => {
-    const o = { sponsors: [], candidates: [], dealOffers: [], staffEvents: [] };
-    const cr = rngFor(st.seed, 13, t, c.id);
-    if (c.subs >= 5000) {
-      const n = 1 + (hasRole(c, 'manager') ? 1 : 0) + (cr() < 0.35 ? 1 : 0);
-      for (let i = 0; i < n; i++) {
-        const q = cr(); const quality = q < 0.5 ? 'good' : q < 0.8 ? 'meh' : 'sketchy';
-        const avgViews = c.lastAvgViews || (1500 + 0.3 * c.subs);
-        let pay = 0.035 * avgViews * N.sponsor * (1 + c.biz / 100) * (hasRole(c, 'manager') ? 1.25 : 1);
-        if (quality === 'sketchy') pay *= 2.2; if (quality === 'meh') pay *= 1.3;
-        const vids = 1 + (cr() < 0.4 ? 1 : 0);
-        o.sponsors.push({ id: i, brand: pick(cr, SPONSORS[quality]), quality, pay: round(pay * vids / 10) * 10, videos: vids });
-      }
-    }
-    if (c.subs >= 10000) {
-      const maxStar = clamp(2 + Math.floor(Math.log10(c.subs / 10000) * 1.3), 2, 5);
-      const roles = Object.keys(STAFF_ROLES).filter(k => c.subs >= STAFF_ROLES[k].unlock);
-      for (let i = 0; i < 3; i++) {
-        const role = pick(cr, roles); const stars = clamp(1 + Math.floor(cr() * maxStar), 1, 5);
-        const tk = Object.keys(TRAITS); const traits = [pick(cr, tk)]; if (cr() < 0.4) { const t2 = pick(cr, tk); if (t2 !== traits[0]) traits.push(t2); }
-        let salary = SALARY[stars] * (traits.includes('cheap') ? 0.7 : 1) * (0.9 + cr() * 0.25);
-        o.candidates.push({ id: i, name: pick(cr, FIRST) + ' ' + pick(cr, LAST)[0] + '.', role, stars, traits, salary: round(salary / 10) * 10 });
-      }
-    }
-    c.staff.forEach(s => {
-      if (s.morale < 40) o.staffEvents.push({ staffId: s.id, kind: 'unhappy', text: s.name + ' (' + STAFF_ROLES[s.role].label + ') is unhappy (morale ' + round(s.morale) + '). Below 25 they quit at the end of the season.' });
-      else if (cr() < 0.08) o.staffEvents.push({ staffId: s.id, kind: 'raise', text: s.name + ' asks for a 30% raise. Paying it: +10 morale. Refusing: -15 morale.' });
-    });
-    if (c.house && c.staff.some(s => s.traits.includes('hothead')) && c.staff.length >= 2 && cr() < 0.5) {
-      o.staffEvents.push({ kind: 'drama', text: 'House drama: a hothead is clashing with the team. Mediate (costs you 1 h/day this season) or ignore (-12 morale for everyone).' });
-    }
-    offers[c.id] = o;
-  });
-  // AI -> human deal offers (collabs/pacts), deterministic from state
-  const human = st.creators[0];
-  st.creators.slice(1).forEach(ai => {
-    const rel = ai.relation[0] || 0; const ratio = human.subs / Math.max(1, ai.subs);
-    const cr = rngFor(st.seed, 17, t, ai.id);
-    if (ratio > 0.4 && ratio < 2.5 && rel > -20 && !isLeaderBy(st, 0, 1.3) && cr() < 0.3) {
-      offers[0].dealOffers.push({ id: 'o' + ai.id + '_' + t, from: ai.id, type: 'collab' });
-    } else if (cr() < 0.22) {
-      const a = Math.floor(cr() * 3); let b = Math.floor(cr() * 3); if (b === a) b = (a + 1) % 3;
-      offers[0].dealOffers.push({ id: 'o' + ai.id + '_' + t, from: ai.id, type: 'pact', youAvoid: a, theyAvoid: b });
-    }
-  });
-  return { turn: t, date: d.label, trends, nextTrends: nextTr, events, mods, offers };
-}
-
-const SPONSORS = { good: ['Nordvault VPN', 'Skillforge courses', 'Brightleaf meal kits', 'Studybuddy app', 'Corefit protein', 'Lumen skincare'], meh: ['MegaMobile game', 'FlashLoan app', 'Glowz gummies', 'QuickTrade app'], sketchy: ['CryptoMoon token', 'JawMax pills', 'Get-rich-quick course', 'Fake-review skincare'] };
-const FIRST = ['Lena','Milo','Ana','Ivo','Sara','Noah','Eva','Luka','Mia','Finn','Nina','Teo','Iris','Dani','Yara','Ben','Zoe','Arjun','Maja','Leo'];
-const LAST = ['Vos','Petrov','Jansen','Novak','Silva','Kovac','Berg','Ivanova','de Wit','Popescu','Kim','Moreau','Smit','Horvat','Nikolov'];
-
-function hasRole(c, role) { return c.staff.some(s => s.role === role); }
+/* ---------- derived ---------- */
+const G = turn => Math.pow(1.015, turn - 1);
+const lvl = (c, k) => LVL(c.xp[k]);
 function influence(c) { return c.subs * (1 + c.community / 200 + c.trust / 400); }
-function isLeaderBy(st, id, factor) { const me = influence(st.creators[id]); return st.creators.every(c => c.id === id || me > influence(c) * factor); }
-function unlockedFor(c) { const u = {}; UNLOCKS.forEach(x => u[x.key] = c.peakSubs >= x.subs); return u; }
+function topicOf(st, t) { const L = NICHES[st.niche].lanes[t.lane]; return { lane: t.lane, i: t.i, name: L[3][t.i][0], demand: L[3][t.i][1], eg: !!L[3][t.i][2], laneName: L[0], kind: L[1], owner: L[2] }; }
+function trendOn(st, t) { return st.trends.find(x => x.lane === t.lane && x.i === t.i && x.until >= st.turn); }
+function identity(c, lane) { const tot = c.laneCount.reduce((a, b) => a + b, 0); if (tot < 3) return 1; return 0.75 + 0.6 * (c.laneCount[lane] / tot); }
+function fatigue(st, style) { const u = st.styleUse[style] || 0; return clamp(1.12 - u * 0.045, 0.7, 1.12); }
+function staffLvl(c, role) { return c.staff.filter(s => s.role === role).reduce((a, s) => Math.max(a, s.level), 0); }
+function hoursUsed(st, id) { return (st.plan[id].videos || []).reduce((a, v) => a + v.hours.script + v.hours.film + v.hours.edit, 0) + st.plan[id].gym * 4 + st.plan[id].study.hours + st.plan[id].job; }
+function hoursLeft(st, id) { return st.plan[id].budget - hoursUsed(st, id); }
 
-/* ---------- Production model ---------- */
-function staffOut(s, c) {
-  let f = 1; const tr = s.traits;
-  if (tr.includes('fast')) f *= 1.25; if (tr.includes('perfectionist')) f *= 0.85; if (tr.includes('ambitious')) f *= 1.2; if (tr.includes('nightowl') && c.house) f *= 1.2;
-  if (c.house) f *= 1.1;
-  return f * (0.4 + s.morale / 100 * 0.8);
+/* ---------- predictions for one video (what the maker screen shows) ---------- */
+function quality(st, c, spec) {
+  const h = spec.hours; const ed = staffLvl(c, 'editor'), wr = staffLvl(c, 'writer');
+  const s = (h.script + (wr ? 4 + wr : 0)) * (0.5 + 0.1 * lvl(c, 'script')), f = h.film * (0.5 + 0.1 * lvl(c, 'camera')), e = (h.edit + (ed ? 4 + ed : 0)) * (0.5 + 0.1 * lvl(c, 'edit'));
+  // a video needs all three; scripting matters most
+  const pts = 0.55 * s + 0.25 * f + 0.4 * e - 0.15 * Math.max(0, Math.max(s, f, e) - 3 * Math.min(s + 1, f + 1, e + 1));
+  return clamp(1 - Math.exp(-Math.max(0, pts) / 9), 0.05, 0.97) * (c.stress > 75 ? 0.88 : 1);
+}
+function ctrOf(st, c, spec, tp) {
+  const S = STYLES[spec.style], A = ANGLES[spec.angle]; const fit = FIT[tp.kind] || {};
+  const tl = Math.max(lvl(c, 'thumb'), staffLvl(c, 'designer')), tt = lvl(c, 'title');
+  return 0.035 * S.base * A.base * (fit[spec.style] || 1) * (fit[spec.angle] || 1) * (0.75 + 0.07 * tl) * (0.8 + 0.05 * tt) * fatigue(st, spec.style) * (0.75 + 0.5 * c.trust / 100);
+}
+function promise(spec) { return (STYLES[spec.style].promise + ANGLES[spec.angle].promise) / 2; }
+function predict(st, c, spec) {
+  const tp = topicOf(st, spec.topic); const q = quality(st, c, spec); const ctr = ctrOf(st, c, spec, tp); const pr = promise(spec);
+  const tr = trendOn(st, spec.topic);
+  return { q, ctr, promise: pr, clickbait: pr > q + 0.15, trend: tr ? (tr.start === st.turn ? 'early' : 'late') : null, tp, fit: (FIT[tp.kind] || {})[spec.style] || 1, afit: (FIT[tp.kind] || {})[spec.angle] || 1 };
+}
+function makeVideo(st, c, spec, turn) {
+  const tp = topicOf(st, spec.topic); const kind = spec.kind || 'normal';
+  spec = Object.assign({}, spec, { targetName: spec.targetName || (spec.target != null && st.creators[spec.target] ? st.creators[spec.target].name : '') });
+  let title = TITLE[spec.angle](tp.name); let ttext = THUMBTXT[spec.angle];
+  if (kind === 'reply') { title = 'Responding to ' + spec.targetName + ' on ' + tp.name; ttext = 'REPLY'; }
+  if (kind === 'callout') { title = spec.targetName + ' is lying to you about ' + tp.name; ttext = 'EXPOSED'; }
+  if (kind === 'challenge') { title = 'I joined the ' + tp.name + ' challenge'; ttext = 'DAY 1'; }
+  if (kind === 'expose') { title = spec.targetName + ' keeps copying me'; ttext = 'COPIED'; }
+  if (kind === 'collab') { title = tp.name + ' ft. ' + spec.targetName; ttext = 'COLLAB'; }
+  if (kind === 'debunk') { title = 'Debunking ' + spec.targetName + '\'s ' + tp.name + ' video'; ttext = 'FALSE'; }
+  if (kind === 'copy') { title = TITLE[spec.angle](tp.name).replace('30 days', '60 days'); }
+  title = title.charAt(0).toUpperCase() + title.slice(1);
+  return { id: st.vseq++, by: c.id, month: turn, topic: { lane: spec.topic.lane, i: spec.topic.i }, style: spec.style, angle: spec.angle, kind, target: spec.target, title, ttext, word: tp.name.split(' ').slice(-1)[0].toUpperCase().slice(0, 10), hours: spec.hours, q: 0, ctr: 0, views: 0, monthViews: 0, subs: 0, sponsor: spec.sponsor || null, series: !!spec.series, eg: tp.eg };
 }
 
-/* Returns everything about a creator's season output before competition. */
-function production(st, c, dec, mods) {
-  const life = lifeStage(c, st.turn);
-  const N = NICHES[st.niche];
-  const R = Object.assign({ deep: 0, pack: 0, comm: 0, study: 0, gym: 0, job: 0 }, dec.routine);
-  let obl = life.obl + (mods.personalHours || 0) + (c.debtTurns > 0 ? 2 : 0) + (dec._mediate ? 1 : 0);
-  const avail = Math.max(0, WAKING - obl);
-  // scale routine down if it exceeds available time
-  let total = R.deep + R.pack + R.comm + R.study + R.gym + R.job;
-  if (total > avail && total > 0) { const k = avail / total; Object.keys(R).forEach(key => R[key] *= k); total = avail; }
-  const free = Math.max(0, avail - total);
-  const burn = c.burnout > 0 ? 0.25 : 1;
-  // focus capacity: about 4h of deep work, more if you recharge in between
-  const cap = Math.min(7, 4 + 0.5 * (R.gym + Math.min(free, 3)) + 0.25 * R.study);
-  const over = Math.max(0, R.deep - cap);
-  const gymBoost = 1 + 0.04 * Math.min(R.gym, 2);
-  const stressF = c.stress > 70 ? 0.85 : 1;
-  const deepEff = (Math.min(R.deep, cap) + over * 0.35) * gymBoost * stressF * burn;
-  const L = R.pack + R.comm; const lightEff = (Math.min(L, 3) + Math.max(0, L - 3) * 0.6) * stressF * burn;
-  const packEffH = L > 0 ? lightEff * R.pack / L : 0, commEffH = L > 0 ? lightEff * R.comm / L : 0;
-  // staff
-  let staffDeep = 0, staffPack = 0, staffComm = 0, craftBonus = 0, packBonus = 0, perfBonus = 0;
-  c.staff.forEach(s => {
-    const o = staffOut(s, c);
-    if (s.role === 'editor') staffDeep += 4 * (0.55 + 0.12 * s.stars) * o;
-    if (s.role === 'writer') { staffDeep += 1.2 * o; craftBonus += 3.5 * s.stars * Math.min(1, o); }
-    if (s.role === 'thumbnail') { staffPack += 1.5 * (0.5 + 0.2 * s.stars) * o; packBonus += 3.5 * s.stars * Math.min(1, o); }
-    if (s.role === 'community') staffComm += 1.2 * (0.6 + 0.12 * s.stars) * o;
-    if (s.traits.includes('perfectionist')) perfBonus += 0.02;
+/* ---------- month start ---------- */
+function startTurn(st) {
+  const t = st.turn; const N = NICHES[st.niche]; const r = rngFor(st.seed, 11, t);
+  // new trends: one or two topics heat up for two months (first month = early)
+  const nT = 1 + (r() < 0.45 ? 1 : 0);
+  for (let k = 0; k < nT; k++) { const lane = r() < 0.5 ? N.lanes.findIndex(l => l[1] === 'trend') : Math.floor(r() * 5); const i = Math.floor(r() * 6); if (!st.trends.some(x => x.lane === lane && x.i === i && x.until >= t)) st.trends.push({ lane, i, start: t, until: t + 1, size: 1 + Math.floor(r() * 2) }); }
+  st.trends = st.trends.filter(x => x.until >= t - 1);
+  // community rival starts a challenge every three months
+  const com = st.creators.find(c => c.arch === 'community');
+  if ((t - 1) % 3 === 0) st.challenge = { by: com.id, lane: com.lane, i: Math.floor(r() * 6), until: t + 1 };
+  if (st.challenge && st.challenge.until < t) st.challenge = null;
+  const d = dateOf(t); st.mods = { rpm: d.m === 10 || d.m === 11 ? 1.35 : d.m === 0 ? 0.75 : 1 };
+  st.events = [];
+  if (d.m === 10) st.events.push({ icon: '💰', title: 'Q4 ad season', text: 'Ad pay is 35% higher in November and December.' });
+  if (d.m === 0) st.events.push({ icon: '📉', title: 'January dip', text: 'Ad pay is 25% lower this month.' });
+  // per-creator plans, offers
+  st.plan = {}; st.offers = {};
+  st.creators.forEach(c => {
+    const life = lifeStage(c, t); let budget = c.human || c.path === 'student' ? life.hours : life.hours;
+    if (!c.human) budget = { easy: 50, normal: 58, hard: 68, brutal: 80 }[st.difficulty];
+    if (c.burnout) budget = Math.round(budget * 0.25);
+    st.plan[c.id] = { budget, life, videos: [], gym: 0, study: { skill: 'script', hours: 0 }, job: 0 };
+    const cr = rngFor(st.seed, 13, t, c.id); const o = { sponsors: [], candidates: [] };
+    if (c.subs >= 3000) { const n = 1 + (staffLvl(c, 'manager') ? 1 : 0); for (let i = 0; i < n; i++) { const x = cr(); const q = x < 0.5 ? 'good' : x < 0.8 ? 'meh' : 'sketchy'; const pay = (80 + c.subs * 0.02) * (1 + 0.06 * lvl(c, 'biz')) * (q === 'sketchy' ? 2.2 : q === 'meh' ? 1.3 : 1) * (staffLvl(c, 'manager') ? 1.25 : 1); o.sponsors.push({ id: i, brand: pick(cr, SPONSORS[q]), quality: q, pay: Math.round(pay / 10) * 10, taken: false }); } }
+    if (lvl(c, 'biz') >= 2) { for (let i = 0; i < 3; i++) { const role = pick(cr, Object.keys(ROLES)); const level = clamp(2 + Math.floor(cr() * (2 + Math.log10(Math.max(10, c.subs) / 1000) * 1.5)), 2, 9); o.candidates.push({ id: i, name: pick(cr, FIRST), role, level, salary: Math.round((150 + level * level * 45) / 10) * 10, hired: false }); } }
+    st.offers[c.id] = o;
+    if (c.pending == null) { const m = MILESTONES.findIndex((x, i) => c.peak >= x.subs && !c.milestones.includes(i)); if (m >= 0) c.pending = m; }
   });
-  let deepHours = (deepEff + staffDeep) * DAYS;
-  if (dec.product && !c.product) deepHours = Math.max(0, deepHours - PRODUCT_HOURS);
-  if (dec._collabs) deepHours = Math.max(0, deepHours - 15 * dec._collabs);
-  const packHours = (packEffH + staffPack) * DAYS;
-  const commHours = (commEffH + staffComm) * DAYS;
-  const nv = Math.max(0, Math.round(dec.videos ? dec.videos.total : 0));
-  const craft = Math.min(100, c.craft + craftBonus); const pk = Math.min(100, c.pack + packBonus + GEAR[c.gear].pack);
-  const p = nv > 0 ? deepHours / nv : 0; const ph = nv > 0 ? packHours / nv : 0;
-  const Q = nv > 0 ? clamp((0.35 + 0.55 * craft / 100) * (p / (p + 25)) * GEAR[c.gear].q * (1 + perfBonus), 0, 1) : 0;
-  const C = nv > 0 ? clamp((0.35 + 0.6 * pk / 100) * (ph / (ph + 3)), 0, 1) : 0;
-  const power = 4 * Math.pow(Q, 1.3 * mods.qWeight) * Math.pow(C, 1.1 * mods.cWeight);
-  return { life, obl, avail, R, free, cap, over, deepEff, deepHours, packHours, commHours, nv, p, ph, Q, C, power, craft, pk, burn };
+  // rivals decide now: they never see what you post this month
+  st.creators.forEach(c => { if (!c.human) aiPlan(st, c); });
 }
 
-/* ---------- Turn resolution ---------- */
-function resolveTurn(stIn, humanDecision, opts) {
-  const st = clone(stIn); opts = opts || {};
-  const news = st.news; const mods = news.mods; const N = NICHES[st.niche];
-  const decisions = {};
-  decisions[0] = sanitize(st, st.creators[0], humanDecision);
-  st.creators.forEach(c => { if (!c.human) decisions[c.id] = (opts.fixed && opts.fixed[c.id]) ? clone(opts.fixed[c.id]) : aiDecide(st, c); });
-  const rep = { turn: st.turn, date: news.date, creators: {}, trends: [], deals: [], events: news.events, notes: {} };
-  st.creators.forEach(c => rep.notes[c.id] = []);
+/* ---------- topic cards for you this month ---------- */
+function topicCards(st) {
+  const N = NICHES[st.niche]; const r = rngFor(st.seed, 19, st.turn); const out = []; const seen = new Set();
+  const add = (o) => { const k = o.lane + ':' + o.i + ':' + (o.kind || ''); if (seen.has(k)) return; seen.add(k); out.push(o); };
+  st.trends.filter(x => x.until >= st.turn).forEach(x => add({ lane: x.lane, i: x.i }));
+  N.lanes.forEach((L, lane) => { add({ lane, i: Math.floor(r() * 6) }); add({ lane, i: Math.floor(r() * 6) }); });
+  const me = st.creators[0];
+  // rival-specific moves
+  st.creators.slice(1).forEach(c => {
+    const last = st.videos.filter(v => v.by === c.id && v.month === st.turn - 1).sort((a, b) => b.views - a.views)[0];
+    if (c.arch === 'authority' && last) add({ lane: last.topic.lane, i: last.topic.i, kind: 'reply', target: c.id, ref: last.id });
+    if (c.arch === 'sniper' && last && promise(last) > 0.6) add({ lane: last.topic.lane, i: last.topic.i, kind: 'callout', target: c.id, ref: last.id });
+    if (c.arch === 'copycat' && me.copiedBy >= 2 && !me.flags.exposed) add({ lane: c.lane >= 0 ? c.lane : 0, i: 0, kind: 'expose', target: c.id });
+  });
+  if (st.challenge && st.challenge.until >= st.turn) add({ lane: st.challenge.lane, i: st.challenge.i, kind: 'challenge', target: st.challenge.by });
+  const collab = st.creators.find(c => c.flags.collabOk === st.turn && c.id !== 0);
+  if (collab) add({ lane: collab.lane, i: Math.floor(r() * 6), kind: 'collab', target: collab.id });
+  return out;
+}
 
-  // 1. instant business actions
-  st.creators.forEach(c => applyBusiness(st, c, decisions[c.id], news, rep));
-
-  // 2. AI-to-AI collabs (rivals team up with each other, never with the runaway leader)
-  if (DIFFICULTY[st.difficulty].think >= 1 && !opts.fixed) {
-    const ais = st.creators.filter(c => !c.human && !st.deals.some(d => d.turn === st.turn && d.status === 'accepted' && (d.a === c.id || d.b === c.id)));
-    let bestPair = null;
-    for (let i = 0; i < ais.length; i++) for (let j = i + 1; j < ais.length; j++) {
-      const a = ais[i], b = ais[j]; const ratio = a.subs / Math.max(1, b.subs);
-      if (ratio < 0.5 || ratio > 2 || (a.relation[b.id] || 0) < -20 || (b.relation[a.id] || 0) < -20) continue;
-      if (isLeaderBy(st, a.id, 1.25) || isLeaderBy(st, b.id, 1.25)) continue;
-      const score = Math.abs(Math.log(ratio)); if (!bestPair || score < bestPair.score) bestPair = { a: a.id, b: b.id, score };
+/* ---------- your actions ---------- */
+function act(st, id, a) {
+  const c = st.creators[id]; const P = st.plan[id];
+  switch (a.type) {
+    case 'video': {
+      const spec = a.spec; const h = spec.hours; const total = h.script + h.film + h.edit;
+      if (total < 3) return { err: 'A video needs at least 3 hours.' };
+      if (total > hoursLeft(st, id)) return { err: 'Not enough hours left this month.' };
+      if (STYLES[spec.style].lvl > lvl(c, 'thumb') && staffLvl(c, 'designer') < STYLES[spec.style].lvl) return { err: 'Thumbnails level ' + STYLES[spec.style].lvl + ' needed.' };
+      if (ANGLES[spec.angle].lvl > lvl(c, 'title')) return { err: 'Titles level ' + ANGLES[spec.angle].lvl + ' needed.' };
+      if (spec.kind === 'collab' && P.videos.some(v => v.kind === 'collab')) return { err: 'One collab per month.' };
+      if (spec.sponsor != null) { const sp = st.offers[id].sponsors.find(x => x.id === spec.sponsor); if (!sp || sp.taken) return { err: 'Sponsor gone.' }; sp.taken = true; }
+      P.videos.push(clone(spec)); return { ok: true };
     }
-    if (bestPair && (st.turn + bestPair.a + bestPair.b) % (st.difficulty === 'normal' ? 3 : 2) === 0) addDeal(st, { type: 'collab', a: bestPair.a, b: bestPair.b, ai: true });
+    case 'unvideo': { const v = P.videos[a.index]; if (!v) return { err: 'Gone.' }; if (v.sponsor != null) { const sp = st.offers[id].sponsors.find(x => x.id === v.sponsor); if (sp) sp.taken = false; } P.videos.splice(a.index, 1); return { ok: true }; }
+    case 'gym': { const n = clamp(a.n, 0, 12); const prev = P.gym; P.gym = n; if (hoursLeft(st, id) < 0) { P.gym = prev; return { err: 'Not enough hours.' }; } return { ok: true }; }
+    case 'study': { const prev = clone(P.study); P.study = { skill: SKILLS[a.skill] ? a.skill : P.study.skill, hours: clamp(a.hours, 0, 200) }; if (hoursLeft(st, id) < 0) { P.study = prev; return { err: 'Not enough hours.' }; } return { ok: true }; }
+    case 'job': { const prev = P.job; P.job = clamp(a.hours, 0, 160); if (hoursLeft(st, id) < 0) { P.job = prev; return { err: 'Not enough hours.' }; } return { ok: true }; }
+    case 'milestone': { if (c.pending == null) return { err: 'No milestone.' }; const m = MILESTONES[c.pending]; const ch = a.choice === 'b' ? m.b : m.a; if (ch.k === 'cash') c.money += ch.v; if (ch.k === 'xp') Object.keys(c.xp).forEach(k => c.xp[k] += ch.v); if (ch.k === 'hours') { c.bonusHours += ch.v; P.budget += ch.v; } if (ch.k === 'trust') c.trust = clamp(c.trust + ch.v, 0, 100); if (ch.k === 'community') c.community = clamp(c.community + ch.v, 0, 100); c.milestones.push(c.pending); c.pending = null; const m2 = MILESTONES.findIndex((x, i) => c.peak >= x.subs && !c.milestones.includes(i)); if (m2 >= 0) c.pending = m2; return { ok: true, label: ch.label }; }
+    case 'hire': { if (lvl(c, 'biz') < 2) return { err: 'Business level 2 needed.' }; const cd = st.offers[id].candidates.find(x => x.id === a.cand && !x.hired); if (!cd) return { err: 'Gone.' }; if (c.money < cd.salary) return { err: 'You need at least one month of salary (€' + cd.salary + ').' }; cd.hired = true; c.staff.push({ id: c.staffSeq++, name: cd.name, role: cd.role, level: cd.level, salary: cd.salary }); return { ok: true }; }
+    case 'fire': { c.staff = c.staff.filter(s => s.id !== a.staff); return { ok: true }; }
+    case 'merch': { if (lvl(c, 'biz') < 4 || c.product) return { err: 'Business level 4 needed.' }; if (c.money < 2500) return { err: 'Merch costs €2,500.' }; c.money -= 2500; c.product = { start: st.turn, decay: 1, total: 0 }; return { ok: true }; }
+    case 'dropout': { if (c.path !== 'student' || st.turn < 11 || c.droppedOut) return { err: 'Not possible now.' }; c.droppedOut = true; return { ok: true }; }
+    case 'askCollab': {
+      const r = st.creators[a.to]; const relv = r.relation[0] || 0;
+      if (r.flags.collabAsked === st.turn) return { err: 'You already asked this month.' };
+      r.flags.collabAsked = st.turn;
+      const need = r.arch === 'authority' ? (c.trust >= 60 && c.subs >= r.subs * 0.25) : (c.subs >= r.subs * 0.3 || relv >= 30);
+      if (r.arch === 'copycat' || r.arch === 'sniper') return { err: r.name + ' doesn\'t do collabs.' };
+      if (!need) return { err: r.arch === 'authority' ? r.name + ' only collabs with trusted channels (trust 60+, 25% of his size).' : 'You\'re too small for ' + r.name + ' right now (30% of their size).' };
+      if (st.creators[0].subs > r.subs * 1.3) return { err: 'You\'re bigger now. ' + r.name + ' won\'t help a rival grow.' };
+      r.flags.collabOk = st.turn; return { ok: true, collab: true };
+    }
   }
-  const active = st.deals.filter(d => d.turn === st.turn && d.status === 'accepted');
-  // collab videos: count toward video slots
-  // 3. production
-  const prod = {};
-  st.creators.forEach(c => { decisions[c.id]._collabs = active.filter(x => x.type === 'collab' && (x.a === c.id || x.b === c.id)).length; prod[c.id] = production(st, c, decisions[c.id], mods); });
+  return { err: 'Unknown action.' };
+}
 
-  // 4. trend competition (secret simultaneous allocations)
-  const tw = news.trends.map(() => ({ total: 1.0, entries: [] })); // 1.0 = background creators
+/* ---------- rivals ---------- */
+function rivalSpec(st, c, topic, r) {
+  const a = c.arch; const think = DIFF[st.difficulty].think;
+  const styles = { authority: ['minimal', 'closeup', 'face'], sniper: ['shock', 'face', 'before'], community: ['before', 'face', 'number'], copycat: ['face', 'number', 'before'] }[a];
+  const angles = { authority: ['howto', 'question', 'list'], sniper: ['bold', 'question', 'tried'], community: ['tried', 'story', 'list'], copycat: ['list', 'tried', 'howto'] }[a];
+  let style = styles[Math.floor(r() * styles.length)], angle = angles[Math.floor(r() * angles.length)];
+  if (think >= 2) { const sorted = styles.slice().sort((x, y) => fatigue(st, y) - fatigue(st, x)); style = sorted[0]; }
+  const per = { authority: [8, 3, 6], sniper: [5, 3, 5], community: [5, 7, 6], copycat: [6, 4, 8] }[a];
+  const k = 1 + think * 0.12;
+  return { topic, style, angle, hours: { script: Math.round(per[0] * k), film: Math.round(per[1] * k), edit: Math.round(per[2] * k) } };
+}
+function aiPlan(st, c) {
+  const r = rngFor(st.seed, 23, st.turn, c.id); const P = st.plan[c.id]; const think = DIFF[st.difficulty].think; const N = NICHES[st.niche];
+  if (c.stress > 45) P.gym = c.stress > 70 ? 4 : 2;
+  const cap = c.arch === 'sniper' ? 4 : 3; const nv0 = () => P.videos.length;
+  const add = (topic, extra) => { if (nv0() >= cap) return; const spec = Object.assign(rivalSpec(st, c, topic, r), extra || {}); const h = spec.hours.script + spec.hours.film + spec.hours.edit; if (h <= hoursLeft(st, c.id)) P.videos.push(spec); };
+  const trends = st.trends.filter(x => x.until >= st.turn);
+  const me = st.creators[0];
+  const lastMine = st.videos.filter(v => v.month === st.turn - 1);
+  if (c.arch === 'authority') {
+    // debunk clickbait in his lane
+    const bait = lastMine.filter(v => v.by === 0 && v.topic.lane === c.lane && promise(v) > v.q + 0.15).sort((a, b) => b.views - a.views)[0];
+    if (bait) add(bait.topic, { kind: 'debunk', target: 0, targetName: me.name });
+    for (let k = 0; k < 3; k++) add({ lane: c.lane, i: Math.floor(r() * 6) });
+  }
+  if (c.arch === 'sniper') {
+    trends.sort((a, b) => (b.start === st.turn) - (a.start === st.turn)).forEach(x => add({ lane: x.lane, i: x.i }));
+    // brutal sniper guesses which trend you'll take: the one in your strongest lane
+    if (think >= 3 && trends.length) { const myLane = me.laneCount.indexOf(Math.max(...me.laneCount)); const x = trends.find(y => y.lane === myLane); if (x) add({ lane: x.lane, i: x.i }); }
+    if (c.flags.calledOut === st.turn - 1) add({ lane: c.lane, i: Math.floor(r() * 6) }, { kind: 'callout', target: 0, targetName: me.name, angle: 'bold', style: 'shock' });
+    for (let k = 0; k < 5; k++) add({ lane: c.lane, i: Math.floor(r() * 6) });
+  }
+  if (c.arch === 'community') {
+    if (st.challenge && st.challenge.by === c.id) add({ lane: st.challenge.lane, i: st.challenge.i }, { kind: 'normal', angle: 'tried', style: 'before' });
+    for (let k = 0; k < 3; k++) add({ lane: c.lane, i: Math.floor(r() * 6) });
+  }
+  if (c.arch === 'copycat') {
+    // copy the best non-series video from last month (prefers yours from Hard up)
+    const pool = lastMine.filter(v => v.by !== c.id && !v.series && v.kind === 'normal').sort((a, b) => (b.views * (b.by === 0 && think >= 2 ? 1.6 : 1)) - (a.views * (a.by === 0 && think >= 2 ? 1.6 : 1)));
+    if (pool[0]) { const o = pool[0]; add(o.topic, { kind: 'copy', target: o.by, ref: o.id, style: o.style, angle: o.angle }); if (think >= 1 && pool[1]) add(pool[1].topic, { kind: 'copy', target: pool[1].by, ref: pool[1].id, style: pool[1].style, angle: pool[1].angle }); }
+    for (let k = 0; k < 3; k++) { const x = trends[k] || { lane: Math.floor(r() * 5), i: Math.floor(r() * 6) }; add({ lane: x.lane, i: x.i }); }
+  }
+  P.study = { skill: ['script', 'thumb', 'edit', 'research', 'camera', 'title'][st.turn % 6], hours: Math.max(0, Math.min(10, hoursLeft(st, c.id))) };
+  // hire when rich
+  if (c.money > 6000 && c.staff.length < 2 && lvl(c, 'biz') >= 2) { const cd = st.offers[c.id].candidates[0]; if (cd) act(st, c.id, { type: 'hire', cand: cd.id }); }
+}
+
+/* ---------- month end ---------- */
+function endTurn(stIn) {
+  const st = clone(stIn); const N = NICHES[st.niche]; const g = G(st.turn); const turn = st.turn;
+  const fresh = [];
+  st.creators.forEach(c => st.plan[c.id].videos.forEach(spec => { const v = makeVideo(st, c, spec, turn); v._spec = spec; fresh.push(v); }));
+  // packaging fatigue counts what everyone posted this month
+  const useNow = {}; fresh.forEach(v => useNow[v.style] = (useNow[v.style] || 0) + 1);
+  const sameTopic = {}; fresh.forEach(v => { const k = v.topic.lane + ':' + v.topic.i; sameTopic[k] = (sameTopic[k] || 0) + 1; });
+  const sameLane = {}; fresh.forEach(v => sameLane[v.topic.lane] = (sameLane[v.topic.lane] || 0) + 1);
+  const notes = { 0: [] }; st.creators.forEach(c => notes[c.id] = notes[c.id] || []);
+  // first-mover: who posted each early trend
+  fresh.forEach(v => {
+    const c = st.creators[v.by]; const tp = topicOf(st, v.topic); const spec = v._spec;
+    const q = quality(st, c, spec); const ctr = ctrOf(st, c, spec, tp); v.q = q; v.ctr = ctr;
+    const tr = trendOn(st, v.topic);
+    let demand = tp.demand * (tr ? (tr.start === turn ? 3.2 : 2) * (1 + 0.3 * (tr.size - 1)) : 1);
+    let reach = (4000 * demand + 2.2 * Math.pow(c.subs, 0.85) * identity(c, v.topic.lane)) * g;
+    if (tp.owner === 'authority' && c.arch !== 'authority' && lvl(c, 'research') < 5 && v.kind !== 'collab') reach *= 0.7;
+    if (c.trending > 0) reach *= 1.25;
+    const others = sameTopic[v.topic.lane + ':' + v.topic.i] - 1; reach /= (1 + 0.45 * others);
+    reach /= (1 + 0.06 * (sameLane[v.topic.lane] - 1));
+    // early trend: whoever is there first month gets the wave, more if the sniper isn't there
+    if (tr && tr.start === turn) { const sniperIn = fresh.some(o => o !== v && st.creators[o.by].arch === 'sniper' && o.topic.lane === v.topic.lane && o.topic.i === v.topic.i); if (!sniperIn && c.arch !== 'sniper') reach *= 1.5; }
+    // special kinds
+    if (v.kind === 'reply' || v.kind === 'callout' || v.kind === 'debunk' || v.kind === 'expose') { const tgt = st.creators[v.target]; reach += Math.pow(tgt.subs, 0.85) * 0.8 * g; }
+    if (v.kind === 'challenge' && v.target !== c.id) { const tgt = st.creators[v.target]; reach += Math.pow(tgt.subs, 0.85) * 0.6 * (0.5 + tgt.community / 100); }
+    if (v.kind === 'collab') { const tgt = st.creators[v.target]; reach += Math.pow(tgt.subs, 0.85) * 1.5; }
+    const clickbait = promise(v) > q + 0.15;
+    let views = reach * ctr * 10 * (0.45 + q) * (clickbait ? 0.85 : 1);
+    if (v.sponsor != null) views *= 0.95;
+    v.views = views; v.monthViews = views;
+    let conv = 0.045 / Math.sqrt(1 + c.subs / 250000) * q * (0.6 + 0.8 * c.trust / 100) * identity(c, v.topic.lane) * N.lanes.length / 5;
+    if (v.series) conv *= 1.25;
+    v.subs = views * conv;
+    // trust consequences
+    if (clickbait) c.trust -= (promise(v) - q) * 5;
+    else c.trust += (q - 0.5) * 2;
+    if (v.kind === 'callout') { c.trust -= 3; st.creators[v.target].trust -= 6; st.creators[v.target].flags.calledOut = turn; rel(st, v.target, c.id, -30); notes[v.target].push(c.name + ' called you out.'); }
+    if (v.kind === 'debunk') { st.creators[v.target].trust -= 7; notes[v.target].push(c.name + ' debunked your video. Trust −7.'); }
+    if (v.kind === 'reply') { const tgt = st.creators[v.target]; const ref = st.videos.find(x => x.id === v.ref); if (ref && q > ref.q) { c.trust += 2; tgt.trust -= 1; } else c.trust -= 1; rel(st, v.target, c.id, q > (ref ? ref.q : 0.5) ? -5 : 5); }
+    if (v.kind === 'expose') { const tgt = st.creators[v.target]; tgt.trust -= 10; c.trust += 4; c.flags.exposed = true; rel(st, v.target, c.id, -40); }
+    if (v.kind === 'challenge' && v.target !== c.id) { rel(st, v.target, c.id, 12); st.creators[v.target].subs += v.subs * 0.25; }
+    if (v.kind === 'collab') { const tgt = st.creators[v.target]; c.trust += 3; tgt.subs += v.subs * 0.3; rel(st, v.target, c.id, 15); }
+    if (v.kind === 'copy') { const orig = st.videos.find(x => x.id === v.ref); if (orig) { orig.copied = true; if (orig.by === 0) { st.creators[0].copiedBy++; notes[0].push(c.name + ' copied your video "' + orig.title + '".'); } } }
+    if (v.sponsor != null) { const sp = st.offers[c.id].sponsors.find(x => x.id === v.sponsor); if (sp) { c.money += sp.pay; c.trust += sp.quality === 'good' ? 0.5 : sp.quality === 'meh' ? -2 : -6; } }
+    c.laneCount[v.topic.lane]++;
+    // skill XP from doing
+    const h = spec.hours; c.xp.script += h.script; c.xp.camera += h.film; c.xp.edit += h.edit; c.xp.thumb += 3; c.xp.title += 3; c.xp.research += 2;
+  });
+  // long tail: older videos keep earning (evergreen much more), copies steal some
+  const tail = {}; st.creators.forEach(c => tail[c.id] = { views: 0, subs: 0 });
+  st.videos.forEach(v => {
+    const age = turn - v.month; if (age < 1) return; const c = st.creators[v.by];
+    const base = (v.monthViews || 0) * (v.eg ? 0.22 : 0.04) * Math.pow(v.eg ? 0.9 : 0.5, age - 1) * (v.copied ? 0.7 : 1);
+    v.views += base; tail[v.by].views += base; tail[v.by].subs += base * 0.006 * v.q;
+  });
+  st.videos = st.videos.concat(fresh.map(v => { delete v._spec; return v; }));
+  st.videos = st.videos.filter(v => turn - v.month < 30 || v.by === 0); // keep memory small
+  // rank this month's feed; #1 gets trending boost next month
+  const ranked = fresh.slice().sort((a, b) => b.views - a.views);
+  st.creators.forEach(c => c.trending = Math.max(0, c.trending - 1));
+  if (ranked[0]) { st.creators[ranked[0].by].trending = 1; }
+  // totals per creator
+  const rep = {};
   st.creators.forEach(c => {
-    const d = decisions[c.id]; const pr = prod[c.id];
-    d.videos.trends.forEach((k, j) => { if (k > 0) { const w = k * pr.power * fatigue(k); tw[j].total += w; tw[j].entries.push({ id: c.id, k, w }); } });
+    const mine = fresh.filter(v => v.by === c.id); const P = st.plan[c.id]; const life = P.life;
+    const views = mine.reduce((a, v) => a + v.views, 0) + tail[c.id].views;
+    const gained = mine.reduce((a, v) => a + v.subs, 0) + tail[c.id].subs;
+    const churn = c.subs * (mine.length === 0 ? 0.04 : 0.008) * (1 - c.community / 150);
+    const prev = c.subs; c.subs = Math.max(0, c.subs + gained - churn); c.peak = Math.max(c.peak, c.subs);
+    const ads = c.peak >= 1000 ? views * N.rpm / 1000 * st.mods.rpm : 0;
+    let merch = 0; if (c.product) { merch = c.community / 100 * c.subs * 0.003 * 18 * (0.6 + 0.8 * c.trust / 100) * c.product.decay; c.product.decay *= 0.9; c.product.total += merch; }
+    const wages = P.job * 12; const salaries = c.staff.reduce((a, s) => a + s.salary, 0);
+    c.money += ads + merch + wages - life.living - (c.human ? salaries : salaries * 0.5);
+    // community grows with regular uploads and replies
+    c.community = clamp(c.community + mine.length * 0.8 + (mine.length >= 2 ? 1 : -2) - c.community * 0.03 + (c.arch === 'community' ? 1.5 : 0), 0, 100);
+    c.trust = clamp(c.trust + (55 - c.trust) * 0.06, 0, 100);
+    // study XP, stress
+    c.xp[P.study.skill] += P.study.hours * 1.6;
+    c.xp.biz += c.staff.length * 2 + (c.subs >= 3000 ? 1 : 0);
+    const used = hoursUsed(st, c.id); const load = P.budget > 0 ? used / P.budget : 0;
+    if (c.burnout) { c.burnout = 0; c.stress = 40; }
+    else { c.stress = clamp(c.stress + load * 26 - 14 - P.gym * 5 + (c.money < 0 ? 8 : 0) + c.staff.length, 0, 100); if (c.stress >= 100) { c.burnout = 1; notes[c.id].push('Burnout. Next month you only have a quarter of your hours.'); } }
+    rep[c.id] = { views: Math.round(views), subs: Math.round(c.subs - prev), ads: Math.round(ads), merch: Math.round(merch), wages, tail: Math.round(tail[c.id].views), videos: mine.map(v => v.id) };
   });
-  const trendViews = {}; st.creators.forEach(c => trendViews[c.id] = 0);
-  news.trends.forEach((tr, j) => {
-    const row = { name: tr.name, size: tr.size, pool: tr.pool, shares: [] };
-    tw[j].entries.forEach(e => { const v = tr.pool * e.w / tw[j].total * mods.disc; trendViews[e.id] += v; row.shares.push({ id: e.id, k: e.k, share: e.w / tw[j].total, views: round(v) }); });
-    rep.trends.push(row);
-  });
-
-  // 5. views, subs, money
-  st.creators.forEach(c => {
-    const d = decisions[c.id]; const pr = prod[c.id]; const life = pr.life;
-    const base = baseViews(c, N, mods);
-    let views = 0, subsGain = 0, libAdd = 0;
-    const trust = 0.7 + 0.6 * c.trust / 100;
-    const conv = convRate(c, N, pr.Q);
-    const nTrend = d.videos.trends.reduce((a, b) => a + b, 0);
-    for (let i = 0; i < pr.nv; i++) {
-      const isTrend = i < nTrend;
-      const v = base * pr.power * (isTrend ? 0.7 : 1) / (1 + 0.12 * i);
-      views += v; subsGain += v * conv * (isTrend ? 0.8 : 1);
-      if (!isTrend) libAdd += v * N.eg;
-    }
-    views += trendViews[c.id]; subsGain += trendViews[c.id] * conv * 0.8;
-    // collabs
-    let collabGain = 0;
-    active.filter(x => x.type === 'collab' && (x.a === c.id || x.b === c.id)).forEach(x => {
-      const other = st.creators[x.a === c.id ? x.b : x.a]; const op = prod[other.id];
-      const g = 0.035 * other.subs * Math.max(0.15, op.Q) * 2 + 400; collabGain += g;
-      rep.notes[c.id].push('Collab with ' + other.name + ': +' + fmt(g) + ' subs');
-    });
-    subsGain += collabGain;
-    // library (evergreen back catalogue)
-    const libViews = c.library * mods.disc;
-    views += libViews; subsGain += libViews * conv * 0.6;
-    c.library = c.library * 0.92 + libAdd;
-    // churn
-    const churnRate = 0.02 * (1 - c.community / 150) * (pr.nv < 2 ? 2.2 : 1) * (c.trust < 30 ? 1.5 : 1);
-    const churn = c.subs * churnRate;
-    const prevSubs = c.subs;
-    c.subs = Math.max(0, c.subs + subsGain - churn);
-    c.peakSubs = Math.max(c.peakSubs, c.subs);
-    // money
-    const monet = prevSubs >= 1000 || c.subs >= 1000;
-    const ads = monet ? views * N.rpm / 1000 * mods.rpm : 0;
-    let sponsorPay = 0, trustD = 0;
-    (d.sponsors || []).forEach(sid => {
-      const sp = news.offers[c.id].sponsors.find(s => s.id === sid); if (!sp) return;
-      if (pr.nv >= sp.videos) { sponsorPay += sp.pay; trustD += sp.quality === 'good' ? 0.5 : sp.quality === 'meh' ? -1.5 * N.trustSens : -7 * N.trustSens; }
-      else { trustD -= 3; rep.notes[c.id].push(sp.brand + ': not enough videos to deliver. No pay, -3 trust.'); }
-    });
-    let productRev = 0;
-    if (c.product) { productRev = c.community / 100 * c.subs * 0.004 * 25 * c.product.quality * trust * c.product.decay * (hasRole(c, 'manager') ? 1.15 : 1); c.product.decay *= 0.85; c.product.total = (c.product.total || 0) + productRev; }
-    const salaries = c.staff.reduce((a, s) => a + s.salary * PAYMULT[s.pay || 'fair'], 0);
-    const rent = c.house ? HOUSE_RENT : 0;
-    const living = life.living - life.support;
-    const wages = pr.R.job * DAYS * 11 * pr.burn;
-    const income = ads + sponsorPay + productRev + wages;
-    const costs = salaries + rent + living;
-    c.money += income - costs;
-    if (c.money < 0) { c.debtTurns = 1; rep.notes[c.id].push('You are in debt. Paying it off takes 2 h/day of extra shifts next season (+stress).'); } else c.debtTurns = 0;
-    // community
-    const consist = pr.nv >= 4 ? 1.5 : pr.nv >= 2 ? 0.4 : -2;
-    const commD = pr.commHours * 0.05 * N.comm * (1 - c.community / 130) + consist + (collabGain > 0 ? 2 : 0) + (pr.Q > 0.6 ? 1 : 0) - 2.5;
-    c.community = clamp(c.community + commD, 0, 100);
-    // trust
-    const cb = pr.Q > 0 ? pr.C / Math.max(0.05, pr.Q) : 1;
-    trustD += (pr.nv > 0 ? (pr.Q - 0.45) * 6 : -1) - (cb > 1.4 ? (cb - 1.4) * 6 * mods.clickbait : 0) + (50 - c.trust) * 0.03;
-    c.trust = clamp(c.trust + trustD, 0, 100);
-    // stress
-    const R = pr.R; const work = R.deep + R.pack + R.comm + R.study * 0.5 + R.job * 0.8 + pr.obl * 0.6;
-    let sD = (work - 9) * 3.5 + pr.over * 5 - R.gym * 4 - pr.free * 2.5 + (c.house ? 3 : 0) + (c.money < 0 ? 6 : 0) + c.staff.length * 0.5;
-    if (c.burnout > 0) { c.burnout--; c.stress = 35; rep.notes[c.id].push('Recovering from burnout.'); }
-    else {
-      c.stress = clamp(c.stress + sD, 0, 100);
-      if (c.stress >= 100) { c.burnout = 1; rep.notes[c.id].push('BURNOUT. Next season you can only work at 25%.'); }
-    }
-    // skills
-    const focus = d.studyFocus || 'craft'; const studyH = R.study * DAYS * pr.burn;
-    c.craft = clamp(c.craft + R.deep * DAYS * pr.burn * 0.012 * (1 - c.craft / 120) + (focus === 'craft' ? studyH * 0.06 * (1 - c.craft / 110) : 0), 0, 100);
-    c.pack = clamp(c.pack + Math.min(pr.packHours, 240) * 0.02 * (1 - c.pack / 120) + (focus === 'pack' ? studyH * 0.06 * (1 - c.pack / 110) : 0), 0, 100);
-    c.biz = clamp(c.biz + c.staff.length * 0.4 + (focus === 'biz' ? studyH * 0.07 * (1 - c.biz / 110) : 0) + (c.product ? 0.5 : 0), 0, 100);
-    // staff morale
-    const grew = c.subs > prevSubs * 1.2;
-    const hot = c.staff.filter(s => s.traits.includes('hothead')).length;
-    c.staff.forEach(s => {
-      let m = (s.pay === 'low' ? -8 : s.pay === 'generous' ? 5 : 0) + (c.house ? 6 : 0) + (c.stress > 75 ? -5 : 0) + (grew ? 3 : 0) - (s.traits.includes('hothead') ? 0 : hot * 3) + (s.traits.includes('ambitious') && s.pay !== 'generous' ? -3 : 0) + (65 - s.morale) * 0.08;
-      if (d.ignoreDrama) m -= 12;
-      s.morale = clamp(s.morale + m, s.traits.includes('loyal') ? 45 : 0, 100);
-      s.seasons = (s.seasons || 0) + 1;
-      if (s.traits.includes('learner') && s.seasons % 4 === 0 && s.stars < 5) { s.stars++; rep.notes[c.id].push(s.name + ' levelled up to ' + s.stars + '★.'); }
-    });
-    const quit = c.staff.filter(s => s.morale < 25);
-    quit.forEach(s => rep.notes[c.id].push(s.name + ' quit (morale too low).'));
-    c.staff = c.staff.filter(s => s.morale >= 25);
-    // stats
-    c.lastAvgViews = pr.nv > 0 ? (views - libViews - trendViews[c.id]) / pr.nv : c.lastAvgViews;
-    c.lastAlloc = d.videos.trends.map((k, j) => ({ k, size: news.trends[j].size }));
-    c.lastDecision = clone(d);
-    rep.creators[c.id] = { views: round(views), subsGain: round(subsGain - churn), churn: round(churn), libViews: round(libViews), trendViews: round(trendViews[c.id]), ads: round(ads), sponsor: round(sponsorPay), product: round(productRev), costs: round(costs), Q: pr.Q, C: pr.C, nv: pr.nv, deepEff: pr.deepEff, cap: pr.cap, over: pr.over, stress: c.stress, commD, trustD };
-  });
-
-  // 6. deal outcomes (pacts honoured or broken)
-  active.filter(x => x.type === 'pact').forEach(x => {
-    const da = decisions[x.a], db = decisions[x.b];
-    const aBroke = da.videos.trends[x.aAvoid] > 0, bBroke = db.videos.trends[x.bAvoid] > 0;
-    [[x.a, aBroke, x.b], [x.b, bBroke, x.a]].forEach(([who, broke, other]) => {
-      const c = st.creators[who];
-      if (broke) { c.deals.broken++; rel(st, other, who, -40); st.creators.forEach(o => { if (o.id !== who && o.id !== other) rel(st, o.id, who, -10); }); c.trust = clamp(c.trust - 2, 0, 100); }
-      else { c.deals.kept++; rel(st, other, who, 8); }
-    });
-    rep.deals.push({ type: 'pact', a: x.a, b: x.b, aBroke, bBroke, aAvoid: news.trends[x.aAvoid].name, bAvoid: news.trends[x.bAvoid].name });
-  });
-  active.filter(x => x.type === 'collab').forEach(x => { rel(st, x.a, x.b, 10); rel(st, x.b, x.a, 10); rep.deals.push({ type: 'collab', a: x.a, b: x.b }); });
-  // leader gets hunted: relations to the leader decay
-  const lead = st.creators.reduce((a, c) => influence(c) > influence(a) ? c : a, st.creators[0]);
-  st.creators.forEach(c => { if (c.id !== lead.id) rel(st, c.id, lead.id, -3); });
-
-  // unlock notes for human
-  const h = st.creators[0]; UNLOCKS.forEach(u => { if (h.peakSubs >= u.subs && !st.unlocked[u.key]) { st.unlocked[u.key] = st.turn; rep.notes[0].push('Unlocked: ' + u.label + '!'); } });
-
-  rep.decisions = decisions;
-  st.log.push(rep); if (st.log.length > 3) st.log.shift();
-  st.lastReport = rep;
+  // fatigue memory
+  Object.keys(STYLES).forEach(s => { st.styleUse[s] = (st.styleUse[s] || 0) * 0.6 + (useNow[s] || 0); });
+  if (st.creators[0].pending == null) { const c = st.creators[0]; const m = MILESTONES.findIndex((x, i) => c.peak >= x.subs && !c.milestones.includes(i)); if (m >= 0) c.pending = m; }
+  st.insights.push(insights(stIn, st, fresh, rep));
+  st.log = { turn, date: dateOf(turn).label, feed: ranked.map(v => v.id), rep, notes: notes[0], crown: ranked[0] ? ranked[0].by : -1 };
+  st.history.push({ turn, c: st.creators.map(c => ({ s: Math.round(c.subs), i: Math.round(influence(c)), m: Math.round(c.money) })) });
   st.turn++;
-  snapshotHistory(st, decisions[0]);
   checkEnd(st);
-  if (!st.over) st.news = generateNews(st);
+  if (!st.over) startTurn(st);
   return st;
 }
-const PAYMULT = { low: 0.8, fair: 1, generous: 1.3 };
-function baseViews(c, N, mods) { const sat = Math.pow(Math.max(0.02, 1 - c.subs / N.cap), 0.7); return (2500 + 3 * Math.pow(c.subs, 0.85)) * N.disc * mods.disc * sat; }
-function convRate(c, N, Q) { return 0.09 * Q * (0.7 + 0.6 * c.trust / 100) * N.conv / Math.pow(1 + c.subs / 150000, 0.6); }
-function fatigue(k) { let s = 0; for (let i = 0; i < k; i++) s += 1 / (1 + 0.35 * i); return s / k; }
 function rel(st, from, to, d) { const c = st.creators[from]; c.relation[to] = clamp((c.relation[to] || 0) + d, -100, 100); }
-function fmt(n) { n = Math.round(n); if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + 'M'; if (Math.abs(n) >= 1e4) return Math.round(n / 1e3) + 'K'; if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(n); }
-
-function applyBusiness(st, c, d, news, rep) {
-  const o = news.offers[c.id];
-  const u = unlockedFor(c);
-  // staff events
-  (o.staffEvents || []).forEach(ev => {
-    if (ev.kind === 'raise') { const s = c.staff.find(x => x.id === ev.staffId); if (!s) return; if ((d.raises || []).includes(ev.staffId)) { s.salary = round(s.salary * 1.3); s.morale = clamp(s.morale + 10, 0, 100); } else s.morale = clamp(s.morale - 15, 0, 100); }
-  });
-  (d.fire || []).forEach(id => { const s = c.staff.find(x => x.id === id); if (s) { c.staff = c.staff.filter(x => x.id !== id); c.staff.forEach(x => x.morale = clamp(x.morale - 5, 0, 100)); rep.notes[c.id].push('You let ' + s.name + ' go.'); } });
-  Object.keys(d.pay || {}).forEach(id => { const s = c.staff.find(x => String(x.id) === String(id)); if (s) s.pay = d.pay[id]; });
-  if (u.staff) (d.hire || []).forEach(cid => {
-    const cand = o.candidates.find(x => x.id === cid); if (!cand) return;
-    if (cand.role === 'manager' && !u.manager) return;
-    c.staff.push({ id: c.staffSeq++, name: cand.name, role: cand.role, stars: cand.stars, traits: cand.traits, salary: cand.salary, morale: 70, pay: 'fair', seasons: 0 });
-  });
-  if (d.gear != null && d.gear > c.gear && d.gear < GEAR.length) { const cost = GEAR[d.gear].cost; if (c.money >= cost) { c.money -= cost; c.gear = d.gear; } }
-  if (d.product && !c.product && u.product && c.money >= PRODUCT_COST) { c.money -= PRODUCT_COST; c.product = { quality: 0.6 + 0.6 * c.biz / 100 + (hasRole(c, 'manager') ? 0.1 : 0), decay: 1, launched: st.turn }; if (c.human) rep.notes[c.id].push('Product launched.'); }
-  if (d.retireProduct && c.product) c.product = null;
-  if (d.house === true && u.house && !c.house && c.staff.length >= 2) c.house = true;
-  if (d.house === false && c.house) c.house = false;
-  if (d.dropOut && c.path === 'student' && st.turn >= 6 && !c.droppedOut) { c.droppedOut = true; rep.notes[c.id].push(c.human ? 'You dropped out of uni. Parents stop the €900 support.' : c.name + ' dropped out of uni to go full-time.'); if (!c.human) rep.notes[0].push(c.name + ' dropped out of uni to go full-time.'); }
+function insights(prev, st, fresh, rep) {
+  const out = []; const mine = fresh.filter(v => v.by === 0); const me0 = prev.creators[0]; const P = prev.plan[0];
+  mine.forEach(v => { if (promise(v) > v.q + 0.15) out.push({ k: 'clickbait', w: 3, text: '"' + v.title + '" promised more than it delivered (retention ' + Math.round(v.q * 100) + '%). Trust dropped.' }); });
+  mine.forEach(v => { if (fatigue(prev, v.style) < 0.9) out.push({ k: 'fatigue', w: 2, text: STYLES[v.style].name + ' thumbnails were overused that month, so your click-through suffered.' }); });
+  mine.forEach(v => { const n = fresh.filter(o => o !== v && o.topic.lane === v.topic.lane && o.topic.i === v.topic.i).length; if (n >= 2) out.push({ k: 'crowded', w: 2.5, text: n + ' other videos covered "' + topicOf(prev, v.topic).name + '" the same month. Views were split.' }); });
+  mine.forEach(v => { if (identity(me0, v.topic.lane) < 0.85) out.push({ k: 'identity', w: 1.5, text: '"' + v.title + '" was outside what your audience follows you for. Fewer viewers subscribed.' }); });
+  prev.trends.filter(x => x.start === prev.turn).forEach(x => { if (!mine.some(v => v.topic.lane === x.lane && v.topic.i === x.i)) out.push({ k: 'trend', w: 2, text: 'Missed the early wave on "' + topicOf(prev, x).name + '".' }); });
+  const left = P.budget - hoursUsed(prev, 0); if (left > 15 && me0.stress < 45) out.push({ k: 'idle', w: 1.5, text: left + ' hours unused while your stress was low.' });
+  if (st.creators[0].burnout) out.push({ k: 'burnout', w: 6, text: 'Burnout: you planned too much without rest.' });
+  if (!mine.length) out.push({ k: 'none', w: 4, text: 'No videos this month. Subscribers drifted away.' });
+  return { turn: prev.turn, date: dateOf(prev.turn).label, items: out, gain: rep[0].subs };
 }
-
-function sanitize(st, c, dec) {
-  const d = clone(dec || {});
-  d.routine = Object.assign({ deep: 4, pack: 1, comm: 1, study: 1, gym: 1, job: 0 }, d.routine || {});
-  Object.keys(d.routine).forEach(k => d.routine[k] = clamp(+d.routine[k] || 0, 0, 14));
-  d.videos = d.videos || { ever: 4, trends: [0, 0, 0] };
-  d.videos.trends = (d.videos.trends || [0, 0, 0]).map(x => clamp(Math.round(+x || 0), 0, 12));
-  d.videos.ever = clamp(Math.round(+d.videos.ever || 0), 0, 30);
-  d.videos.total = d.videos.ever + d.videos.trends.reduce((a, b) => a + b, 0);
-  d.studyFocus = ['craft', 'pack', 'biz'].includes(d.studyFocus) ? d.studyFocus : 'craft';
-  d.sponsors = d.sponsors || []; d.hire = d.hire || []; d.fire = d.fire || []; d.raises = d.raises || [];
-  return d;
-}
-
-/* ---------- Deals (structured diplomacy) ---------- */
-// Human proposes during planning; AI answers immediately (deterministic).
-function proposeDeal(st, deal) {
-  const ai = st.creators[deal.to]; const human = st.creators[0];
-  if (st.deals.some(d => d.turn === st.turn && (d.a === deal.to || d.b === deal.to) && d.status === 'accepted')) return { accepted: false, reason: ai.name + ' already has a deal this season.' };
-  const relv = ai.relation[0] || 0; const p = PERSONAS[ai.persona];
-  if (relv < -30) return { accepted: false, reason: ai.name + ' does not trust you (relationship ' + relv + ').' };
-  if (deal.type === 'collab') {
-    const ratio = human.subs / Math.max(1, ai.subs);
-    if (isLeaderBy(st, 0, 1.25)) return { accepted: false, reason: 'You are leading. ' + ai.name + ' will not help the leader grow.' };
-    const need = ai.persona === 'craftsman' ? 0.5 : ai.persona === 'grinder' ? 0.25 : 0.35;
-    if (ratio < need && relv < 30) return { accepted: false, reason: 'Your channel is too small for ' + ai.name + ' (needs ~' + Math.round(need * 100) + '% of their size, or a stronger relationship).' };
-    if (ai.persona === 'craftsman' && human.trust < 50) return { accepted: false, reason: ai.name + ' only collabs with trusted channels (trust 50+).' };
-    return addDeal(st, { type: 'collab', a: 0, b: deal.to });
-  }
-  if (deal.type === 'pact') {
-    // AI accepts if the trend it gives up is not better for it than the one you give up
-    const tr = st.news.trends; const giveUp = tr[deal.theyAvoid], gain = tr[deal.youAvoid];
-    if (deal.youAvoid === deal.theyAvoid) return { accepted: false, reason: 'Pick two different trends.' };
-    if (giveUp.size > gain.size * (relv > 20 ? 1.5 : 1)) return { accepted: false, reason: ai.name + ' would give up more than they get.' };
-    return addDeal(st, { type: 'pact', a: 0, b: deal.to, aAvoid: deal.youAvoid, bAvoid: deal.theyAvoid });
-  }
-  return { accepted: false, reason: 'Unknown deal.' };
-}
-function acceptOffer(st, offer) {
-  if (offer.type === 'collab') return addDeal(st, { type: 'collab', a: 0, b: offer.from });
-  return addDeal(st, { type: 'pact', a: 0, b: offer.from, aAvoid: offer.youAvoid, bAvoid: offer.theyAvoid });
-}
-function addDeal(st, d) { d.id = st.dealSeq++; d.turn = st.turn; d.status = 'accepted'; st.deals.push(d); st.deals = st.deals.filter(x => x.turn >= st.turn - 6); return { accepted: true, deal: d }; }
-function cancelDeal(st, id) { st.deals = st.deals.filter(d => !(d.id === id && d.turn === st.turn)); }
-
-/* ---------- AI ---------- */
-function estimateValue(st, c, pr, kind, trendIdx, k, othersW) {
-  // expected subs + money value of placing k videos (kind: 'ever' or trend j)
-  const N = NICHES[st.niche]; const mods = st.news.mods;
-  const remaining = Math.max(1, st.maxTurns - st.turn);
-  const base = baseViews(c, N, mods);
-  const conv = convRate(c, N, pr.Q);
-  if (kind === 'ever') {
-    const v = base * pr.power * k * (1 - 0.03 * k); const libFuture = v * N.eg * Math.min(remaining, 10) * 0.6;
-    return v * conv + libFuture * 0.025 + (v + libFuture) * N.rpm / 1000 * 0.15;
-  }
-  const tr = st.news.trends[trendIdx];
-  const w = k * pr.power * fatigue(k);
-  const share = w / (1 + othersW + w);
-  const v = tr.pool * share * mods.disc + base * pr.power * 0.7 * k;
-  return v * conv * 0.8 + v * N.rpm / 1000 * 0.15;
-}
-
-function predictOthers(st, me, r, level) {
-  // sample other creators' trend weights based on their history/persona
-  const tr = st.news.trends; const out = [0, 0, 0];
-  st.creators.forEach(o => {
-    if (o.id === me.id) return;
-    const pw = Math.max(0.3, 4 * Math.pow(0.45 + o.craft / 400, 1.5) * (0.5 + o.pack / 250));
-    let probs;
-    if (level === 0) probs = [0.33, 0.33, 0.33];
-    else if (o.human || level < 2) {
-      // learn from history of what this creator did
-      const hist = (st.trendHistory && st.trendHistory[o.id]) || [];
-      const big = hist.length ? hist.filter(h => h.wentBiggest).length / hist.length : 0.5;
-      const any = hist.length ? hist.filter(h => h.any).length / hist.length : 0.6;
-      const order = [0, 1, 2].sort((a, b) => tr[b].size - tr[a].size);
-      probs = [0, 0, 0]; probs[order[0]] = any * (level >= 3 ? big : 0.5); probs[order[1]] = any * (1 - (level >= 3 ? big : 0.5)) * 0.6; probs[order[2]] = any * (1 - (level >= 3 ? big : 0.5)) * 0.4;
-    } else {
-      const p = PERSONAS[o.persona]; const order = [0, 1, 2].sort((a, b) => tr[b].size - tr[a].size);
-      probs = [0, 0, 0]; const tb = p.trendBias;
-      probs[order[0]] = clamp(0.45 + tb, 0.05, 0.95); probs[order[1]] = clamp(0.3 - tb / 3, 0.05, 0.9); probs[order[2]] = clamp(0.2 - tb / 3, 0.02, 0.9);
-      if (o.persona === 'copycat') { const lead = st.creators.reduce((a, c) => influence(c) > influence(a) ? c : a, st.creators[0]); if (lead.lastAlloc) lead.lastAlloc.forEach((x, j) => { if (x.k > 0) probs[j] = Math.min(0.95, probs[j] + 0.3); }); }
-    }
-    for (let j = 0; j < 3; j++) if (r() < probs[j]) out[j] += pw * (1 + Math.floor(r() * 3)) * 0.8;
-  });
-  return out;
-}
-
-function aiDecide(st, c) {
-  const p = PERSONAS[c.persona]; const diff = DIFFICULTY[st.difficulty]; const r = rngFor(st.seed, 23, st.turn, c.id);
-  const life = lifeStage(c, st.turn); const mods = st.news.mods;
-  // part-time job if money is short
-  const salaries0 = c.staff.reduce((a, s) => a + s.salary * PAYMULT[s.pay || 'fair'], 0);
-  const expIncome = c.subs >= 1000 ? (c.lastAvgViews || 1000) * p.videos * NICHES[st.niche].rpm / 1000 : 0;
-  const deficit = life.living - life.support + salaries0 - expIncome - Math.max(0, c.money) / 3;
-  const job = clamp(Math.ceil(deficit / 660 * 2) / 2, 0, 3);
-  const avail = WAKING - life.obl - (mods.personalHours || 0) - (c.debtTurns > 0 ? 2 : 0) - job;
-  // routine
-  let routines = [Object.assign({}, p.routine)];
-  if (diff.think >= 1) {
-    routines.push({ deep: 4, pack: 1.5, comm: 1, study: 1, gym: 1.5 });
-    routines.push({ deep: 5.5, pack: 1.5, comm: 1, study: 0.5, gym: 1.5 });
-    routines.push({ deep: 4.5, pack: 2, comm: 1.5, study: 1, gym: 1 });
-    if (c.stress > 55) routines.push({ deep: 3.5, pack: 1, comm: 1, study: 1, gym: 2 });
-  }
-  if (diff.think >= 3) {
-    routines.push({ deep: 6, pack: 2, comm: 1, study: 0.5, gym: 2 });
-    routines.push({ deep: 5, pack: 2.5, comm: 1.5, study: 1.5, gym: 1.5 });
-    routines.push({ deep: 6.5, pack: 1.5, comm: 1, study: 0, gym: 2 });
-  }
-  if (c.stress > 60 && diff.think === 0) { routines[0].deep -= 1; routines[0].gym += 1; }
-  const vidOpts = diff.think >= 1 ? [3, 4, 5, 6, 8, 10, 12] : [p.videos];
-  if (diff.think >= 1 && !vidOpts.includes(p.videos)) vidOpts.push(p.videos);
-  let best = null;
-  const projDec = (R, n) => ({ routine: R, videos: { ever: n, trends: [0, 0, 0], total: n }, studyFocus: p.focus });
-  routines.forEach(R => {
-    const tot = R.deep + R.pack + R.comm + R.study + R.gym; if (tot > avail) { const k = avail / tot; Object.keys(R).forEach(x => R[x] *= k); }
-    R.job = job;
-    vidOpts.forEach(n => {
-      const pr = production(st, c, projDec(R, n), mods);
-      // stress projection
-      const work = R.deep + R.pack + R.comm + R.study * 0.5 + pr.obl * 0.6;
-      const sD = (work - 9) * 3.5 + pr.over * 5 - R.gym * 4 - pr.free * 2.5 + c.staff.length * 0.5;
-      const ns = c.stress + sD;
-      let val = estimateValue(st, c, pr, 'ever', 0, n, 0);
-      val += (c.craft < 90 ? R.deep * DAYS * 0.012 + (p.focus === 'craft' ? R.study * DAYS * 0.06 : 0) : 0) * c.subs * 0.004 * diff.think;
-      if (ns >= 95) val *= 0.4; else if (ns > 75) val *= 0.85;
-      if (diff.think >= 1 && n === p.videos) val *= 1.04; // personality preference
-      if (!best || val > best.val) best = { val, R, n, pr };
-    });
-  });
-  const R = Object.assign({}, best.R, { job }); const n = best.n; const pr = best.pr;
-  // trend allocation via Monte Carlo over predicted opponents
-  const S = diff.samples; const samples = []; for (let s = 0; s < S; s++) samples.push(predictOthers(st, c, r, diff.think));
-  const forbidden = st.deals.filter(d => d.turn === st.turn && d.status === 'accepted' && d.type === 'pact' && (d.a === c.id || d.b === c.id)).map(d => ({ trend: d.a === c.id ? d.aAvoid : d.bAvoid, deal: d }));
-  const cands = [];
-  const maxT = Math.min(n, 6);
-  for (let a = 0; a <= maxT; a++) for (let b = 0; a + b <= maxT; b++) for (let cc = 0; a + b + cc <= maxT; cc++) cands.push([a, b, cc]);
-  let bestA = null; let bestAll = null;
-  cands.forEach(al => {
-    let tot = 0;
-    samples.forEach(ow => { let v = 0; al.forEach((k, j) => { if (k > 0) v += estimateValue(st, c, pr, 'trend', j, k, ow[j]); }); tot += v; });
-    let val = tot / S + estimateValue(st, c, pr, 'ever', 0, n - al.reduce((x, y) => x + y, 0), 0);
-    // personality bias
-    const order = [0, 1, 2].sort((x, y) => st.news.trends[y].size - st.news.trends[x].size);
-    if (p.trendBias > 0 && al[order[0]] > 0) val *= 1 + p.trendBias * 0.25;
-    if (p.trendBias < 0 && al.some(k => k > 0)) val *= 1 + p.trendBias * 0.15;
-    if (diff.think === 0) val *= 0.85 + r() * 0.3; // easy AI misjudges
-    const breaks = forbidden.filter(f => al[f.trend] > 0);
-    if (!bestAll || val > bestAll.val) bestAll = { val, al };
-    if (breaks.length === 0 && (!bestA || val > bestA.val)) bestA = { val, al };
-  });
-  // betrayal decision: break a pact only if the gain is large relative to honesty
-  let alloc = bestA ? bestA.al : bestAll.al;
-  if (bestA && bestAll.val > bestA.val * (1 + p.honesty * 0.6 + Math.max(0, (c.relation[0] || 0)) / 200)) alloc = bestAll.al;
-  const ever = Math.max(0, n - alloc.reduce((x, y) => x + y, 0));
-  // business
-  const o = st.news.offers[c.id]; const u = unlockedFor(c);
-  const d = { routine: R, studyFocus: weakest(c, p.focus), videos: { ever, trends: alloc.slice(), total: n }, sponsors: [], hire: [], fire: [], raises: [], pay: {} };
-  if (u.sponsors) o.sponsors.forEach(s => { if (s.quality === 'good' || (s.quality === 'meh' && c.money < 3000) || (s.quality === 'sketchy' && c.persona === 'gambler')) { if (n >= s.videos) d.sponsors.push(s.id); } });
-  const salaries = c.staff.reduce((a, s) => a + s.salary, 0);
-  const income = (c.lastAvgViews || 1000) * n * NICHES[st.niche].rpm / 1000 + 1;
-  const maxStaff = c.subs > 500000 ? 6 : c.subs > 150000 ? 4 : c.subs > 40000 ? 3 : 2;
-  if (u.staff && c.staff.length < maxStaff) {
-    const have = c.staff.map(s => s.role);
-    const want = p.staffPref.find(rl => !have.includes(rl) && (rl !== 'manager' || u.manager)) || p.staffPref[0];
-    const cand = o.candidates.filter(x => x.role === want || diff.think >= 2).sort((a, b) => b.stars / b.salary - a.stars / a.salary)[0];
-    if (cand && c.money > (salaries + cand.salary) * 2.5 && income * 0.7 > salaries + cand.salary - 800) d.hire.push(cand.id);
-  }
-  c.staff.forEach(s => { d.pay[s.id] = (c.persona === 'craftsman' || s.morale < 45) && c.money > 20000 ? 'generous' : 'fair'; });
-  (o.staffEvents || []).forEach(ev => { if (ev.kind === 'raise' && c.money > 15000) d.raises.push(ev.staffId); if (ev.kind === 'drama') d.ignoreDrama = true; });
-  if (c.gear < 3 && c.money > GEAR[c.gear + 1].cost * 3) d.gear = c.gear + 1;
-  if (u.product && !c.product && c.money > PRODUCT_COST * 2.5) d.product = true;
-  if (c.product && c.product.decay < 0.3 && c.money > PRODUCT_COST * 2.5) d.retireProduct = true;
-  if (u.house && !c.house && c.staff.length >= 3 && c.money > HOUSE_RENT * 5) d.house = true;
-  if (c.path === 'student' && !c.droppedOut && st.turn >= 7 && ((c.persona === 'grinder' && c.subs > 25000) || (c.persona === 'gambler' && c.subs > 15000) || (diff.think >= 3 && c.persona !== 'craftsman' && c.subs > 20000))) d.dropOut = true;
-  return sanitize(st, c, d);
-}
-function weakest(c, pref) {
-  if (pref === 'craft' && c.craft < 75) return 'craft';
-  if (pref === 'pack' && c.pack < 60) return 'pack';
-  const arr = [['craft', c.craft], ['pack', c.pack * 1.1]]; if (c.staff.length >= 2 || c.subs > 50000) arr.push(['biz', c.biz * 1.6]);
-  arr.sort((a, b) => a[1] - b[1]); return arr[0][0];
-}
-
-/* ---------- History & end ---------- */
-function snapshotHistory(st, humanDec) {
-  st.history = st.history || [];
-  st.history.push({ turn: st.turn, c: st.creators.map(c => ({ s: round(c.subs), i: round(influence(c)), m: round(c.money), cm: +c.community.toFixed(1), t: +c.trust.toFixed(1), st: round(c.stress) })) });
-  // track trend behaviour (used by AIs to model players)
-  if (st.lastReport) {
-    st.trendHistory = st.trendHistory || {};
-    const tr = st.news.trends; const big = [0, 1, 2].sort((a, b) => tr[b].size - tr[a].size)[0];
-    st.creators.forEach(c => { const d = st.lastReport.decisions[c.id]; const any = d.videos.trends.some(k => k > 0); (st.trendHistory[c.id] = st.trendHistory[c.id] || []).push({ any, wentBiggest: d.videos.trends[big] > 0 }); if (st.trendHistory[c.id].length > 8) st.trendHistory[c.id].shift(); });
-  }
-}
-function standings(st) { return st.creators.map(c => ({ id: c.id, name: c.name, influence: influence(c), subs: c.subs, money: c.money })).sort((a, b) => b.influence - a.influence); }
+function standings(st) { return st.creators.map(c => ({ id: c.id, name: c.name, score: st.mode === 'sprint' ? c.subs - (c.start || 0) : c.subs, subs: c.subs, money: c.money })).sort((a, b) => b.score - a.score); }
 function checkEnd(st) {
-  if (st.mode === 'turns' && st.turn > st.maxTurns) { st.over = true; st.winner = standings(st)[0].id; st.endReason = 'Five years are up.'; }
-  if (st.mode === 'subs') { const w = st.creators.filter(c => c.subs >= st.target).sort((a, b) => b.subs - a.subs)[0]; if (w) { st.over = true; st.winner = w.id; st.endReason = w.name + ' reached ' + fmt(st.target) + ' subscribers.'; } }
-  if (st.mode === 'money') { const w = st.creators.filter(c => c.money >= st.target).sort((a, b) => b.money - a.money)[0]; if (w) { st.over = true; st.winner = w.id; st.endReason = w.name + ' reached €' + fmt(st.target) + '.'; } }
-  if (!st.over && st.turn > st.maxTurns) { st.over = true; st.winner = standings(st)[0].id; st.endReason = 'Time ran out (10 years).'; }
+  if (st.mode === 'race') { const w = st.creators.filter(c => c.subs >= 1e6).sort((a, b) => b.subs - a.subs)[0]; if (w) { st.over = true; st.winner = w.id; st.endReason = w.name + ' hit 1M subscribers first.'; return; } }
+  if (st.turn > st.maxTurns) { st.over = true; st.winner = standings(st)[0].id; st.endReason = st.mode === 'sprint' ? 'One year is up.' : 'Five years are up.'; }
 }
 
-/* ---------- Replay & review ---------- */
-// A save is { opts, decisions: [ {dec, deals:[...]} per turn ] }. Everything else is replayed.
-function replay(save, upToTurn) {
-  let st = newGame(save.opts);
-  const lim = upToTurn == null ? save.turns.length : Math.min(upToTurn - 1, save.turns.length);
-  for (let i = 0; i < lim; i++) {
-    const t = save.turns[i];
-    (t.deals || []).forEach(dl => { if (dl.kind === 'propose') proposeDeal(st, dl.deal); else if (dl.kind === 'accept') acceptOffer(st, dl.offer); });
-    st = resolveTurn(st, t.dec);
-  }
+/* ---------- replay ---------- */
+function replay(save, upTo) {
+  let st = newGame(save.opts); const lim = upTo == null ? save.turns.length : Math.min(upTo - 1, save.turns.length);
+  for (let i = 0; i < lim; i++) { (save.turns[i] || []).forEach(a => act(st, 0, a)); st = endTurn(st); }
   return st;
 }
 
-// value of a creator's position: project a few seasons alone with a sensible autopilot
-function positionValue(st0, cid, ahead) {
-  const st = clone(st0); const c = st.creators[cid];
-  const dec = c.lastDecision ? clone(c.lastDecision) : { routine: { deep: 4, pack: 1, comm: 1, study: 1, gym: 1 }, videos: { ever: 6, trends: [0, 0, 0] } };
-  dec.videos = { ever: Math.max(3, dec.videos.total || 6), trends: [0, 0, 0] }; dec.sponsors = []; dec.hire = []; dec.fire = []; dec.gear = null; dec.product = false; dec.house = null; dec.dropOut = false;
-  let cur = st;
-  for (let i = 0; i < ahead && !cur.over && cur.news; i++) { cur.deals = []; cur = resolveTurnIsolated(cur, cid, dec); }
-  const cc = cur.creators[cid];
-  return influence(cc) * (cc.burnout > 0 ? 0.9 : 1) + Math.max(0, cc.money) * 0.5;
-}
-function resolveTurnIsolated(st, cid, dec) {
-  // run the full model for one creator with everyone else idle
-  const fixed = {}; st.creators.forEach(o => { if (o.id !== cid && o.id !== 0) fixed[o.id] = idleDecision(); });
-  const humanDec = cid === 0 ? dec : idleDecision();
-  if (cid !== 0) fixed[cid] = dec;
-  const out = resolveTurn(st, humanDec, { fixed });
-  return out;
-}
-function idleDecision() { return { routine: { deep: 0, pack: 0, comm: 0, study: 0, gym: 0 }, videos: { ever: 0, trends: [0, 0, 0], total: 0 }, sponsors: [], hire: [], fire: [], raises: [], pay: {} }; }
-
-// Recommend a decision for the human using the strongest AI planner
-function recommend(st) {
-  const c = st.creators[0];
-  const keep = st.difficulty; st.difficulty = 'brutal';
-  const saved = c.persona; c.persona = 'grinder';
-  const pers = PERSONAS.grinder; const bak = Object.assign({}, pers); pers.trendBias = 0; pers.honesty = 1; pers.videos = 6;
-  const d = aiDecide(st, c);
-  Object.assign(pers, bak); c.persona = saved; st.difficulty = keep;
-  return d;
-}
-
-/* Review: for each turn, how much did each part of your decision cost vs the coach's alternative? */
-function review(save, maxTurns) {
-  const out = [];
-  let st = newGame(save.opts);
-  const lim = Math.min(save.turns.length, maxTurns || 999);
-  for (let i = 0; i < lim; i++) {
-    const t = save.turns[i];
-    (t.deals || []).forEach(dl => { if (dl.kind === 'propose') proposeDeal(st, dl.deal); else if (dl.kind === 'accept') acceptOffer(st, dl.offer); });
-    const actual = resolveTurn(st, t.dec);
-    const aiFixed = actual.lastReport.decisions;
-    const fixed = {}; st.creators.forEach(c => { if (!c.human) fixed[c.id] = aiFixed[c.id]; });
-    const rec = recommend(st);
-    const mine = sanitize(st, st.creators[0], t.dec);
-    const variants = {
-      routine: Object.assign(clone(mine), { routine: rec.routine, studyFocus: rec.studyFocus }),
-      volume: Object.assign(clone(mine), { videos: scaleAlloc(mine.videos, rec.videos.total) }),
-      trends: Object.assign(clone(mine), { videos: { ever: Math.max(0, mine.videos.total - rec.videos.trends.reduce((a, b) => a + b, 0)), trends: rec.videos.trends.slice(), total: mine.videos.total } }),
-    };
-    const ahead = Math.min(3, Math.max(1, (st.maxTurns || 30) - st.turn));
-    const base = positionValue(actual, 0, ahead);
-    const parts = {};
-    Object.keys(variants).forEach(k => {
-      const alt = resolveTurn(st, variants[k], { fixed });
-      parts[k] = { gain: positionValue(alt, 0, ahead) - base, dec: variants[k] };
-    });
-    const rep = actual.lastReport;
-    out.push({ turn: st.turn, date: st.news.date, base, parts, mine, rec, rep, subs: st.creators[0].subs, stress: st.creators[0].stress, trends: st.news.trends, cap: production(st, st.creators[0], mine, st.news.mods).cap });
-    st = actual;
-  }
-  return out;
-}
-function scaleAlloc(v, total) { const t = v.trends.slice(); let tt = t.reduce((a, b) => a + b, 0); while (tt > total) { const j = t.indexOf(Math.max(...t)); t[j]--; tt--; } return { ever: Math.max(0, total - tt), trends: t, total }; }
-
-/* Live forecast for the planning screen (no rivals, no trend shares) */
-function preview(st, dec) {
-  const c = st.creators[0]; const d = sanitize(st, c, dec); const N = NICHES[st.niche]; const mods = st.news.mods;
-  d._collabs = st.deals.filter(x => x.turn === st.turn && x.status === 'accepted' && x.type === 'collab' && (x.a === 0 || x.b === 0)).length;
-  const pr = production(st, c, d, mods);
-  const R = pr.R; const work = R.deep + R.pack + R.comm + R.study * 0.5 + R.job * 0.8 + pr.obl * 0.6;
-  const sD = (work - 9) * 3.5 + pr.over * 5 - R.gym * 4 - pr.free * 2.5 + (c.house ? 3 : 0) + c.staff.length * 0.5;
-  const base = baseViews(c, N, mods); let views = 0;
-  const nTrend = d.videos.trends.reduce((a, b) => a + b, 0);
-  for (let i = 0; i < pr.nv; i++) views += base * pr.power * (i < nTrend ? 0.7 : 1) / (1 + 0.12 * i);
-  views += c.library * mods.disc;
-  const monet = c.peakSubs >= 1000;
-  const wages = R.job * DAYS * 11 * pr.burn;
-  const salaries = c.staff.reduce((a, s) => a + s.salary * PAYMULT[(d.pay && d.pay[s.id]) || s.pay || 'fair'], 0);
-  const life = pr.life;
-  const ads = monet ? views * N.rpm / 1000 * mods.rpm : 0;
-  const sponsorPay = (d.sponsors || []).reduce((a, sid) => { const s = st.news.offers[0].sponsors.find(x => x.id === sid); return a + (s && pr.nv >= s.videos ? s.pay : 0); }, 0);
-  const cb = pr.Q > 0 ? pr.C / Math.max(0.05, pr.Q) : 1;
-  return { pr, d, stressNow: c.stress, stressNext: c.burnout > 0 ? 35 : clamp(c.stress + sD, 0, 100), stressDelta: sD, views, ads, wages, salaries, living: life.living - life.support, rent: c.house ? HOUSE_RENT : 0, sponsorPay, clickbait: cb > 1.4, monet };
-}
-
-const api = { NICHES, PERSONAS, STAFF_ROLES, TRAITS, GEAR, UNLOCKS, SALARY, PRODUCT_COST, HOUSE_RENT, SIZE_LABEL, DIFFICULTY, DAYS, WAKING,
-  newGame, resolveTurn, generateNews, production, preview, lifeStage, dateOf, influence, standings, proposeDeal, acceptOffer, cancelDeal, sanitize, aiDecide, recommend, review, replay, unlockedFor, fmt, clone, rngFor, PAYMULT, hasRole };
+const api = { NICHES, STYLES, ANGLES, FIT, SKILLS, ARCH, ROLES, MILESTONES, DIFF, LVL, XPFOR, newGame, act, endTurn, replay, predict, topicCards, topicOf, trendOn, lifeStage, dateOf, hoursLeft, hoursUsed, lvl, fatigue, identity, influence, standings, promise, fmt, clone, staffLvl };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TubeYou = api;
 })(typeof window !== 'undefined' ? window : this);
